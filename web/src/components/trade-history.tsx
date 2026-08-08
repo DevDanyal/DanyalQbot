@@ -2,13 +2,9 @@
 
 import { useState } from "react";
 import type { Stats, Trade } from "@/lib/types";
-import {
-  dirLabel,
-  fmtSigned,
-  fmtTradeTime,
-  isBuy,
-} from "@/lib/format";
-import { EmptyRow, Panel, PanelHead, ResultTag } from "@/components/ui";
+import { fmtSigned } from "@/lib/format";
+import { EmptyRow, Panel, PanelHead } from "@/components/ui";
+import { TradesTable } from "@/components/trades-table";
 
 function Sparkline({ trades }: { trades: Trade[] }) {
   const points = trades
@@ -170,54 +166,8 @@ export function TradeHistory({ stats }: { stats: Stats | null }) {
 
       {tab === "recent" &&
         (recent.length ? (
-          <div className="mt-4 overflow-x-auto rounded-xl border border-white/[.07]">
-            <table className="w-full min-w-[560px] border-collapse text-[13px]">
-              <thead>
-                <tr className="border-b border-white/[.07] text-left text-[11px] uppercase tracking-wide text-faint">
-                  <th className="px-3.5 py-2.5 font-medium">Time</th>
-                  <th className="px-3.5 py-2.5 font-medium">Pair</th>
-                  <th className="px-3.5 py-2.5 font-medium">Dir</th>
-                  <th className="px-3.5 py-2.5 font-medium">Amount</th>
-                  <th className="px-3.5 py-2.5 font-medium">Result</th>
-                  <th className="px-3.5 py-2.5 text-right font-medium">P/L</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((t) => {
-                  const buy = isBuy(t.direction);
-                  const pnl = Number(t.pnl || 0);
-                  return (
-                    <tr
-                      key={t.id}
-                      className="border-b border-white/[.04] last:border-0 hover:bg-white/[.02]"
-                    >
-                      <td className="px-3.5 py-2.5 tabular-nums text-faint">
-                        {fmtTradeTime(t.time)}
-                      </td>
-                      <td className="px-3.5 py-2.5 font-medium">{t.pair}</td>
-                      <td
-                        className={`px-3.5 py-2.5 font-medium ${buy ? "text-mint" : "text-coral"}`}
-                      >
-                        {dirLabel(t.direction)}
-                      </td>
-                      <td className="px-3.5 py-2.5 tabular-nums">
-                        {Number(t.amount || 0).toFixed(2)}
-                      </td>
-                      <td className="px-3.5 py-2.5">
-                        <ResultTag r={t.result} />
-                      </td>
-                      <td
-                        className={`px-3.5 py-2.5 text-right tabular-nums ${
-                          pnl > 0 ? "text-mint" : pnl < 0 ? "text-coral" : ""
-                        }`}
-                      >
-                        {fmtSigned(pnl)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="mt-4">
+            <TradesTable trades={recent} />
           </div>
         ) : (
           <div className="mt-4">

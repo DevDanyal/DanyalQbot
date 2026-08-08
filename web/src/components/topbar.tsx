@@ -4,9 +4,13 @@ import { fmtMoney } from "@/lib/format";
 export function Topbar({
   status,
   offline,
+  view,
+  onViewChange,
 }: {
   status: BotStatus | null;
   offline: boolean;
+  view: "dashboard" | "history";
+  onViewChange: (view: "dashboard" | "history") => void;
 }) {
   const running = !!status?.running;
   const state = offline
@@ -27,7 +31,7 @@ export function Topbar({
 
   return (
     <header className="sticky top-0 z-40 border-b border-white/[.07] bg-[#070b14]/75 backdrop-blur-md">
-      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-4 px-4 py-3.5 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3.5 sm:px-6 lg:px-8">
         <div className="flex items-center gap-3">
           <div className="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-sky to-mint text-ink shadow-[0_4px_18px_rgba(56,189,248,.35)]">
             <svg
@@ -53,6 +57,22 @@ export function Topbar({
               Chart analyst &amp; auto trader
             </p>
           </div>
+        </div>
+
+        <div className="flex items-center gap-1 rounded-xl border border-white/[.08] bg-white/[.03] p-1">
+          {(["dashboard", "history"] as const).map((v) => (
+            <button
+              key={v}
+              onClick={() => onViewChange(v)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                view === v
+                  ? "bg-gradient-to-r from-sky to-mint text-ink"
+                  : "text-soft hover:text-foreground"
+              }`}
+            >
+              {v === "dashboard" ? "Dashboard" : "History"}
+            </button>
+          ))}
         </div>
 
         <div className="flex items-center gap-2">

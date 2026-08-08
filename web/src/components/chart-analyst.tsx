@@ -29,6 +29,7 @@ export function ChartAnalyst() {
   const [verdict, setVerdict] = useState<AnalyzeResponse | null>(null);
   const [clientErr, setClientErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const camRef = useRef<HTMLInputElement>(null);
 
   const pick = (f: File | null | undefined) => {
     if (!f || !f.type.startsWith("image/")) return;
@@ -106,6 +107,14 @@ export function ChartAnalyst() {
           className="hidden"
           onChange={(e) => pick(e.target.files?.[0])}
         />
+        <input
+          ref={camRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => pick(e.target.files?.[0])}
+        />
         {previewUrl ? (
           <img
             src={previewUrl}
@@ -141,11 +150,31 @@ export function ChartAnalyst() {
       </div>
 
       <button
+        onClick={() => camRef.current?.click()}
+        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/[.12] bg-white/[.03] px-4 py-2.5 text-sm font-medium text-soft transition hover:bg-white/[.06]"
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="15"
+          height="15"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+        >
+          <path d="M3 8a2 2 0 0 1 2-2h1.5l1.5-2h8l1.5 2H19a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z" />
+          <circle cx="12" cy="13" r="3.2" />
+        </svg>
+        Take a photo
+      </button>
+
+      <button
         onClick={analyze}
         disabled={!file || busy}
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky to-mint px-4 py-3 text-sm font-semibold text-ink transition hover:brightness-110 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy ? (
+      >        {busy ? (
           <>
             <svg
               viewBox="0 0 24 24"

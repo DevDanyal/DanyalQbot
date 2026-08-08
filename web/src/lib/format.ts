@@ -44,3 +44,16 @@ export function isBuy(direction: string): boolean {
   const d = (direction || "").toLowerCase();
   return d === "buy" || d === "call";
 }
+
+export function dayMeta(day: string): { weekday: string; date: string } {
+  const d = new Date(`${day}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return { weekday: "—", date: day };
+  return {
+    weekday: d.toLocaleDateString(undefined, { weekday: "long" }),
+    date: d.toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+  };
+}

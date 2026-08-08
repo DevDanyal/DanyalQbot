@@ -48,6 +48,18 @@ export interface Stats {
   experience: { slots: Record<string, ExperienceSlot> };
 }
 
+export interface HistoryDay {
+  day: string;
+  wins: number;
+  losses: number;
+  pnl: number;
+  trades: Trade[];
+}
+
+export interface HistoryResponse {
+  days: HistoryDay[];
+}
+
 export type AnalyzeSuccess = {
   ok: true;
   direction: "UP" | "DOWN" | "FLAT";

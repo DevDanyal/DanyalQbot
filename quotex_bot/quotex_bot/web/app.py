@@ -204,6 +204,31 @@ def stats():
     return jsonify(_stats())
 
 
+@app.route("/api/history")
+def history():
+    """All trades grouped by trading day (newest day first)."""
+    trades = _read_csv(DATA / "trades.csv", TRADE_FIELDS)
+    by_day: dict[str, list[dict]] = {}
+    for t in trades:
+        day = (t.get("time") or "")[:10] or "unknown"
+        by_day.setdefault(day, []).append(t)
+
+    days = []
+    for day, day_trades in by_day.items():
+        wins = sum(1 for t in day_trades if t["result"] == "WIN")
+        losses = sum(1 for t in day_trades if t["result"] == "LOSS")
+        pnl = sum(float(t.get("pnl") or 0) for t in day_trades)
+        days.append({
+            "day": day,
+            "trades": day_trades[::-1],  # newest first
+            "wins": wins,
+            "losses": losses,
+            "pnl": round(pnl, 2),
+        })
+    days.sort(key=lambda d: d["day"], reverse=True)
+    return jsonify({"days": days})
+
+
 _config = Config.from_yaml()
 controller = BotController(_config)
 

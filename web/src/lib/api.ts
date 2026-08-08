@@ -2,6 +2,7 @@ import type {
   ActionResponse,
   AnalyzeResponse,
   BotStatus,
+  HistoryResponse,
   Stats,
 } from "./types";
 
@@ -13,6 +14,12 @@ export async function getStatus(): Promise<BotStatus> {
 
 export async function getStats(): Promise<Stats> {
   const res = await fetch("/api/stats", { cache: "no-store" });
+  if (!res.ok) throw new Error("Backend offline");
+  return res.json();
+}
+
+export async function getHistory(): Promise<HistoryResponse> {
+  const res = await fetch("/api/history", { cache: "no-store" });
   if (!res.ok) throw new Error("Backend offline");
   return res.json();
 }
