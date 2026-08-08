@@ -1,0 +1,22 @@
+# Render Blueprint — Quotex bot backend (Flask web service)
+# Connect this repo on Render, or deploy via API with the repo linked.
+# rootDir = quotex_bot so Render builds from the Python package root.
+
+services:
+  - type: web
+    name: quotex-bot-backend
+    runtime: python
+    rootDir: quotex_bot
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn quotex_bot.web.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
+    healthCheckPath: /api/bot/status
+    plan: free
+    envVars:
+      - key: QUOTEX_EMAIL
+        sync: false
+      - key: QUOTEX_PASSWORD
+        sync: false
+      - key: QUOTEX_PROXY
+        sync: false
+      - key: QUOTEX_PIN
+        sync: false

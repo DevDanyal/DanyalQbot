@@ -13,3 +13,10 @@ dnspython>=2.0.0
 
 # Browser-automation fallback (Playwright route)
 playwright>=1.40.0
+
+# Web dashboard (Flask app + chart image analysis)
+Flask>=3.0.0
+opencv-python-headless>=4.8.0
+
+# Production WSGI server (Render)
+gunicorn>=21.0.0
