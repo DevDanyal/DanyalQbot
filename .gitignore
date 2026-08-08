@@ -1,0 +1,38 @@
+# ---- Credentials & secrets (NEVER commit these) ----
+quotex_bot/.env
+quotex_bot/.env.local
+quotex_bot/session.json
+quotex_bot/session.json.bak-*
+
+# ---- Runtime data, logs & state ----
+quotex_bot/data/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.env/
+
+# ---- Node / Next.js ----
+web/node_modules/
+web/.next/
+web/out/
+web/.env.local
+web/.env*.local
+npm-debug.log*
+
+# ---- OpenCode personal tooling ----
+.opencode/
+opencode.json
+opencode.jsonc
+
+# ---- Test artifacts ----
+.playwright-mcp/
+*.png
+
+# ---- OS ----
+Thumbs.db
+.DS_Store
+desktop.ini

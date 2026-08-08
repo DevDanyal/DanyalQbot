@@ -1,0 +1,15 @@
+# Quotex bot dependencies
+# Live connection (reverse-engineered community API, GitHub only — no PyPI
+# package). The tarball URL installs without needing git on the machine.
+https://github.com/cleitonleonel/pyquotex/archive/refs/heads/master.zip
+
+# Data / math
+numpy>=1.26.0
+pandas>=2.0.0
+PyYAML>=6.0
+
+# Public-DNS fallback when the ISP/router DNS blocks Quotex hostnames
+dnspython>=2.0.0
+
+# Browser-automation fallback (Playwright route)
+playwright>=1.40.0

@@ -1,0 +1,96 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@theme {
+  --color-ink: #06111f;
+  --color-soft: #8b96b3;
+  --color-faint: #5b6688;
+  --color-sky: #38bdf8;
+  --color-mint: #2fe6a3;
+  --color-coral: #ff5c72;
+  --color-amber: #ffc15e;
+
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(47, 230, 163, 0.45);
+    }
+    70% {
+      box-shadow: 0 0 0 8px rgba(47, 230, 163, 0);
+    }
+  }
+}
+
+:root {
+  --background: #070b14;
+  --foreground: #e6ecf7;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  background-image:
+    radial-gradient(
+      700px 420px at 12% -6%,
+      rgba(56, 189, 248, 0.09),
+      transparent 60%
+    ),
+    radial-gradient(
+      800px 520px at 90% -4%,
+      rgba(47, 230, 163, 0.07),
+      transparent 60%
+    );
+  background-repeat: no-repeat;
+}
+
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: radial-gradient(
+    ellipse 90% 55% at 50% 0%,
+    black 30%,
+    transparent 75%
+  );
+  mask-image: radial-gradient(
+    ellipse 90% 55% at 50% 0%,
+    black 30%,
+    transparent 75%
+  );
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+::selection {
+  background: rgba(56, 189, 248, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}

@@ -1,0 +1,101 @@
+# Quotex Trading Bot configuration
+# Demo first, real money later. Never put credentials in this file —
+# use environment variables (QUOTEX_EMAIL, QUOTEX_PASSWORD).
+
+account:
+  mode: demo                # demo | live
+  email: ${QUOTEX_EMAIL}    # overridden by env var
+  password: ${QUOTEX_PASSWORD}
+  remember_me: true
+
+connector:
+  backend: quotex           # quotex | mock (mock = synthetic, no connection)
+  host: market-qx.trade     # current platform host (qxbroker.com is ISP-blocked & redirects here).
+                            # Bot pins public-DNS resolution for it automatically.
+  proxy: ${QUOTEX_PROXY}    # optional HTTPS/SOCKS5 proxy URL (e.g. http://user:pass@host:port).
+                            # Some ISPs block Quotex at TLS level; a proxy bypasses that.
+  # backend: mock
+
+mock:
+  speed: 10.0               # mock market runs this many times faster than real time
+
+market:
+  pair: "EURUSD"            # fallback single pair (kept for back-compat)
+  # Watch many pairs and trade whichever fires a strong signal.
+  # NOTE: OTC "_otc" pairs currently place orders unreliably on the
+  # platform (server ignores fast orders intermittently); non-OTC forex
+  # majors are proven and work. Trade on weekdays (forex 24/5).
+  pairs:
+    - EURUSD
+    - GBPUSD
+    - USDJPY
+    - AUDUSD
+    # - USDCHF
+    # - USDCAD
+  timezone: "UTC"
+  # Pair name ends with "_otc" -> always open (24/7), weekend guard skipped.
+  # Otherwise weekend/holiday guard applies (forex). 24/5 typical.
+
+strategy:
+  direction_timeframe: 60   # seconds, trend-filter candles (1m)
+  direction_ema_period: 50  # EMA period on direction candles
+  entry_timeframe: 5        # seconds, entry-trigger candles (5s)
+  expiry_seconds: 60        # trade expiry in seconds.
+                            # Platform minimum is 30s (5s/15s rejected with
+                            # expiration/open_time errors). 60s is the
+                            # shortest reliable, grid-aligned expiry.
+  # Direction-first: EMA-50 trend decides buy/sell (price>EMA & rising -> buy,
+  # price<EMA & falling -> sell). When require_strong_body is false the bot
+  # trades every clear trend direction as long as the market is alive.
+  require_strong_body: false   # true = old strict "strong candle body" filter
+  min_body_pips: 0.00001       # "market alive" floor on candle body size
+  body_vs_avg_ratio: 1.5       # used only when require_strong_body is true
+  ema_slope_bars: 3         # require EMA rising (buy) / falling (sell) over this many direction candles
+                            # -> no signals in flat/choppy markets
+  reversal: true            # baseline direction mode; the research agent overrides this
+                            # per pair when the measured regime differs (claude.md section 4/8).
+
+research:
+  # The research sub-agent measures each pair's live mean-reversion rate
+  # before every trade and REFUSES to trade when no edge is proven. It only
+  # allows a pair when measured reversal accuracy beats break-even + margin.
+  min_sample: 20            # minimum number of real-body candles required for a verdict
+  margin: 0.03              # safety margin above break-even win rate (54% @ 0.85 payout -> 57% needed)
+  min_body_fraction: 0.15   # at least this share of candles must have a real body (market alive)
+  cooldown: 120             # seconds between research re-runs
+
+learning:
+  # The bot learns from its own trade history. Every trade is remembered
+  # by (pair, direction, hour-of-day UTC). Once a situation has enough
+  # samples it is BLOCKED when its historical win rate is below
+  # break-even + margin — the bot stops trading where it has lost before.
+  # Knowledge persists in data/experience.json across restarts.
+  enabled: true
+  min_sample: 30            # trades needed per situation before it is judged
+  margin: 0.03              # safety margin above break-even (same as research)
+
+
+risk:
+  bet_percent: 0.01         # 1-2% of balance per trade
+  min_bet: 0.10             # absolute floor for bet size
+  max_bet: 50.0             # absolute ceiling for bet size
+  daily_loss_limit_percent: 0.10   # stop day after losing 10% of day bankroll
+  daily_profit_target: null        # optional: e.g. 100.0
+  total_max_loss_percent: 0.30     # absolute stop regardless of daily limit
+  max_daily_trades: 500            # safety cap on trades per day
+  payout_rate: 0.85               # assumed payout used by backtests
+
+scheduler:
+  check_interval: 1         # seconds between control checks
+  reconnect_retries: 5      # retries before giving up on a reconnection
+  reconnect_backoff: 2.0    # seconds, doubles on repeated failure
+  idle_sleep: 60            # seconds to sleep when market closed / kill-switch
+
+logging:
+  level: INFO
+  log_file: "data/bot.log"
+  trades_csv: "data/trades.csv"
+  candles_csv: "data/candles.csv"
+  research_csv: "data/research.csv"
+  experience_json: "data/experience.json"
+  daily_csv: "data/daily_summary.csv"

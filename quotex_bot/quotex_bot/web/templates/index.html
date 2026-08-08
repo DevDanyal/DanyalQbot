@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>QX Trading Dashboard</title>
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="bg-glow"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">QX</div>
+      <div>
+        <h1>Trading Dashboard</h1>
+        <p class="tagline">Chart Analyst &amp; Auto Trader</p>
+      </div>
+    </div>
+    <div class="top-stats">
+      <div class="stat-pill">
+        <span class="dot" id="bot-dot"></span>
+        <span id="bot-state">idle</span>
+      </div>
+      <div class="stat-pill">
+        <span class="label">Balance</span>
+        <span class="value" id="balance">—</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="grid">
+    <!-- CHART ANALYST -->
+    <section class="card" id="card-analyst">
+      <div class="card-head">
+        <h2><span class="ico">🔍</span> Chart Analyst</h2>
+        <p class="sub">Upload a photo of your trading chart — the bot reads the candles and tells you the direction.</p>
+      </div>
+
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="file-input" accept="image/*" hidden>
+        <div class="dz-empty" id="dz-empty">
+          <div class="dz-icon">📸</div>
+          <p><strong>Drop a chart photo here</strong> or click to browse</p>
+          <span class="hint">PNG / JPG screenshot of the candles</span>
+        </div>
+        <img id="preview" class="preview hidden" alt="chart preview">
+      </div>
+
+      <button class="btn primary" id="analyze-btn" disabled>Analyze chart</button>
+
+      <div class="verdict hidden" id="verdict">
+        <div class="v-head">
+          <span class="v-arrow" id="v-arrow">—</span>
+          <div>
+            <span class="v-label">Market direction</span>
+            <strong class="v-dir" id="v-dir">—</strong>
+          </div>
+        </div>
+        <div class="meter">
+          <div class="meter-fill" id="meter-fill"></div>
+        </div>
+        <span class="v-conf" id="v-conf">0% confidence</span>
+        <ul class="v-reasons" id="v-reasons"></ul>
+        <p class="disclaimer" id="v-disclaimer"></p>
+      </div>
+    </section>
+
+    <!-- AUTO TRADER -->
+    <section class="card" id="card-trader">
+      <div class="card-head">
+        <h2><span class="ico">🤖</span> Auto Trader</h2>
+        <p class="sub">The bot connects to Quotex and trades on its own using the trend strategy. Wins and losses are counted below.</p>
+      </div>
+
+      <div class="trader-status">
+        <div class="status-row">
+          <span class="label">Status</span>
+          <span class="value"><span class="dot" id="trad-dot"></span><span id="trad-state">offline</span></span>
+        </div>
+        <div class="status-row"><span class="label">Mode</span><span class="value" id="trad-mode">—</span></div>
+        <div class="status-row"><span class="label">Balance</span><span class="value" id="trad-balance">—</span></div>
+        <div class="status-row"><span class="label">Uptime</span><span class="value" id="trad-uptime">—</span></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn success" id="start-btn">▶ Start trading</button>
+        <button class="btn danger" id="stop-btn" disabled>■ Stop</button>
+        <button class="btn ghost" id="mock-btn" title="Start with the fake market (no real trading)">Test mode</button>
+      </div>
+      <p class="msg" id="trad-msg"></p>
+
+      <div class="mini-stats">
+        <div class="mini"><span class="m-num" id="m-today-trades">0</span><span class="m-label">trades today</span></div>
+        <div class="mini"><span class="m-num win" id="m-today-win">0</span><span class="m-label">wins</span></div>
+        <div class="mini"><span class="m-num loss" id="m-today-loss">0</span><span class="m-label">losses</span></div>
+        <div class="mini"><span class="m-num" id="m-today-pnl">0.00</span><span class="m-label">pnl today</span></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- STATS -->
+  <section class="card wide" id="card-stats">
+    <div class="card-head">
+      <h2><span class="ico">📊</span> Trade History</h2>
+      <p class="sub">Every trade the bot took — counted and shown here.</p>
+    </div>
+
+    <div class="big-stats">
+      <div class="big"><span class="b-num" id="s-total">0</span><span class="b-label">all trades</span></div>
+      <div class="big"><span class="b-num win" id="s-wins">0</span><span class="b-label">wins</span></div>
+      <div class="big"><span class="b-num loss" id="s-losses">0</span><span class="b-label">losses</span></div>
+      <div class="big"><span class="b-num" id="s-rate">0%</span><span class="b-label">win rate</span></div>
+      <div class="big"><span class="b-num" id="s-pnl">0.00</span><span class="b-label">net P/L</span></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" data-tab="recent">Recent trades</button>
+      <button class="tab" data-tab="daily">Daily summary</button>
+      <button class="tab" data-tab="learned">Learned situations</button>
+    </div>
+
+    <div class="tab-pane active" id="pane-recent">
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Pair</th><th>Dir</th><th>Amount</th><th>Result</th><th>P/L</th>
+          </tr></thead>
+          <tbody id="tbl-recent"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane" id="pane-daily">
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Day</th><th>Trades</th><th>Wins</th><th>Losses</th><th>P/L</th></tr></thead>
+          <tbody id="tbl-daily"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="tab-pane" id="pane-learned">
+      <p class="hint" id="learned-empty">No situations learned yet — the bot will show which slots it avoids once it has enough history.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Situation</th><th>Trades</th><th>Win rate</th><th>P/L</th></tr></thead>
+          <tbody id="tbl-learned"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <p>Personal project · Demo account first · Always manage risk — no bot can guarantee profit.</p>
+  </footer>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
