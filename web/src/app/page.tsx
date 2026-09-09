@@ -2,15 +2,18 @@
 
 import { useCallback, useState } from "react";
 import { getHistory, getStats, getStatus } from "@/lib/api";
+import type { QuotexAccount } from "@/lib/types";
 import { usePoll } from "@/lib/use-poll";
 import { Topbar } from "@/components/topbar";
 import { ChartAnalyst } from "@/components/chart-analyst";
 import { AutoTrader } from "@/components/auto-trader";
+import { QuotexAccountPanel } from "@/components/quotex-account";
 import { TradeHistory } from "@/components/trade-history";
 import { HistoryView } from "@/components/history-view";
 
 export default function Page() {
   const [view, setView] = useState<"dashboard" | "history">("dashboard");
+  const [accounts, setAccounts] = useState<QuotexAccount[]>([]);
 
   const status = usePoll(useCallback(() => getStatus(), []), 3000);
   const stats = usePoll(useCallback(() => getStats(), []), 5000);
@@ -22,6 +25,7 @@ export default function Page() {
     stats.refresh();
     history.refresh();
   };
+  const activeAccount = accounts.find((a) => a.isActive) ?? null;
 
   return (
     <div className="relative flex min-h-screen flex-col">
@@ -54,8 +58,13 @@ export default function Page() {
               <AutoTrader
                 status={status.data}
                 stats={stats.data}
+                account={activeAccount}
                 onAction={refresh}
               />
+            </div>
+
+            <div className="mt-6">
+              <QuotexAccountPanel onAccountsChange={setAccounts} />
             </div>
 
             <div className="mt-6">

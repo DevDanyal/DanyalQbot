@@ -1,5 +1,6 @@
 import type { BotStatus } from "@/lib/types";
 import { fmtMoney } from "@/lib/format";
+import { UserMenu } from "@/components/user-menu";
 
 export function Topbar({
   status,
@@ -86,6 +87,7 @@ export function Topbar({
               {status?.balance != null ? fmtMoney(status.balance) : "—"}
             </span>
           </div>
+          <UserMenu />
         </div>
       </div>
     </header>

@@ -5,6 +5,15 @@ export interface BotStatus {
   balance: number | null;
   error: string | null;
   mode: "demo" | "live";
+  account_email?: string | null;
+}
+
+export interface QuotexAccount {
+  id: number;
+  email: string;
+  mode: "demo" | "live";
+  isActive: boolean;
+  createdAt: number;
 }
 
 export interface Trade {

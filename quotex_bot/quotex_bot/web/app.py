@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -54,13 +55,30 @@ class BotController:
     def is_running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
-    def start(self, mock: bool = False) -> tuple[bool, str]:
+    def start(
+        self,
+        mock: bool = False,
+        email: str | None = None,
+        password: str | None = None,
+        mode: str | None = None,
+    ) -> tuple[bool, str]:
         with self._lock:
             if self.is_running():
                 return False, "Bot is already running."
             from quotex_bot.scheduler.runner import Runner
 
-            mode = self.config.account.get("mode", "demo")
+            cfg = dict(self.config.data)
+            account = dict(cfg.get("account", {}))
+            if email is not None:
+                account["email"] = email
+            if password is not None:
+                account["password"] = password
+            if mode is not None:
+                account["mode"] = mode
+            cfg["account"] = account
+            self.config = Config(cfg)
+
+            mode = account.get("mode", "demo")
             if mock or self.config.get("connector.backend", "quotex") == "mock":
                 from quotex_bot.connector.mock import MockConnector
                 self._connector = MockConnector(
@@ -106,6 +124,15 @@ class BotController:
                 balance = self._connector.get_balance()
             except Exception:  # noqa: BLE001
                 balance = None
+        account = self.config.account
+        email = account.get("email", "")
+        masked = ""
+        if email:
+            at = email.find("@")
+            if at > 0:
+                masked = email[: min(3, at)] + "…" + email[at:]
+            else:
+                masked = email[:3] + "…"
         return {
             "running": self.is_running(),
             "started_at": self.started_at,
@@ -113,8 +140,53 @@ class BotController:
             if self.started_at else 0,
             "balance": balance,
             "error": self.error,
-            "mode": self.config.account.get("mode", "demo"),
+            "mode": account.get("mode", "demo"),
+            "account_email": masked,
         }
+
+
+class BotRegistry:
+    """One BotController per buyer (keyed by customer id)."""
+
+    def __init__(self, base_config: Config):
+        self._base_config = base_config
+        self._bots: dict[str, BotController] = {}
+        self._lock = threading.Lock()
+
+    def _config_for(self, key: str) -> Config:
+        cfg = dict(self._base_config.data)
+        if key == "default":
+            return Config(cfg)
+        logging_cfg = dict(cfg.get("logging", {}))
+        suffix = f"_{key}"
+        logging_cfg["trades_csv"] = f"data/trades{suffix}.csv"
+        logging_cfg["daily_csv"] = f"data/daily_summary{suffix}.csv"
+        logging_cfg["experience_json"] = f"data/experience{suffix}.json"
+        logging_cfg["research_csv"] = f"data/research{suffix}.csv"
+        cfg["logging"] = logging_cfg
+        return Config(cfg)
+
+    def controller(self, key: str) -> BotController:
+        with self._lock:
+            if key not in self._bots:
+                self._bots[key] = BotController(self._config_for(key))
+            return self._bots[key]
+
+
+def require_token() -> tuple[bool, str | None]:
+    """True if the shared BOT_AUTH_TOKEN is accepted.
+
+    If BOT_AUTH_TOKEN is unset, requests are allowed (backwards compatible
+    local dev). When set, every bot/stats request must send it in
+    `x-bot-token`.
+    """
+    expected = os.environ.get("BOT_AUTH_TOKEN", "").strip()
+    if not expected:
+        return True, None
+    provided = request.headers.get("x-bot-token", "")
+    if provided == expected:
+        return True, None
+    return False, "Invalid or missing bot token."
 
 
 def _read_csv(path: Path, fields: list[str]) -> list[dict]:
@@ -131,16 +203,17 @@ def _read_csv(path: Path, fields: list[str]) -> list[dict]:
     return out
 
 
-def _stats() -> dict:
-    trades = _read_csv(DATA / "trades.csv", TRADE_FIELDS)
+def _stats(key: str = "default") -> dict:
+    suffix = "" if key == "default" else f"_{key}"
+    trades = _read_csv(DATA / f"trades{suffix}.csv", TRADE_FIELDS)
     wins = sum(1 for t in trades if t["result"] == "WIN")
     losses = sum(1 for t in trades if t["result"] == "LOSS")
     pnl = sum(float(t.get("pnl") or 0) for t in trades)
-    daily = _read_csv(DATA / "daily_summary.csv",
+    daily = _read_csv(DATA / f"daily_summary{suffix}.csv",
                       ["day", "trades", "pnl", "wins", "losses", "end_balance"])
 
     experience = {"slots": {}}
-    exp_file = DATA / "experience.json"
+    exp_file = DATA / f"experience{suffix}.json"
     if exp_file.exists():
         try:
             import json
@@ -183,31 +256,61 @@ def analyze():
 
 @app.route("/api/bot/start", methods=["POST"])
 def bot_start():
-    mock = request.json.get("mock", False) if request.is_json else False
-    ok, msg = controller.start(mock=mock)
-    return jsonify({"ok": ok, "message": msg})
+    ok_auth, msg = require_token()
+    if not ok_auth:
+        return jsonify({"ok": False, "message": msg}), 401
+    data = request.json if request.is_json else {}
+    key = str(data.get("customer") or "default")
+    ctrl = registry.controller(key)
+    ok, msg = ctrl.start(
+        mock=data.get("mock", False),
+        email=data.get("email"),
+        password=data.get("password"),
+        mode=data.get("mode"),
+    )
+    return jsonify({"ok": ok, "message": msg, "customer": key})
 
 
 @app.route("/api/bot/stop", methods=["POST"])
 def bot_stop():
-    controller.stop()
-    return jsonify({"ok": True, "message": "Stop requested."})
+    ok_auth, msg = require_token()
+    if not ok_auth:
+        return jsonify({"ok": False, "message": msg}), 401
+    data = request.json if request.is_json else {}
+    key = str(data.get("customer") or "default")
+    registry.controller(key).stop()
+    return jsonify({"ok": True, "message": "Stop requested.", "customer": key})
 
 
 @app.route("/api/bot/status")
 def bot_status():
-    return jsonify(controller.status())
+    ok_auth, msg = require_token()
+    if not ok_auth:
+        return jsonify({"ok": False, "message": msg}), 401
+    key = str(request.args.get("customer") or "default")
+    data = registry.controller(key).status()
+    data["customer"] = key
+    return jsonify(data)
 
 
 @app.route("/api/stats")
 def stats():
-    return jsonify(_stats())
+    ok_auth, msg = require_token()
+    if not ok_auth:
+        return jsonify({"ok": False, "message": msg}), 401
+    key = str(request.args.get("customer") or "default")
+    return jsonify(_stats(key))
 
 
 @app.route("/api/history")
 def history():
     """All trades grouped by trading day (newest day first)."""
-    trades = _read_csv(DATA / "trades.csv", TRADE_FIELDS)
+    ok_auth, msg = require_token()
+    if not ok_auth:
+        return jsonify({"ok": False, "message": msg}), 401
+    key = str(request.args.get("customer") or "default")
+    suffix = "" if key == "default" else f"_{key}"
+    trades = _read_csv(DATA / f"trades{suffix}.csv", TRADE_FIELDS)
     by_day: dict[str, list[dict]] = {}
     for t in trades:
         day = (t.get("time") or "")[:10] or "unknown"
@@ -230,7 +333,7 @@ def history():
 
 
 _config = Config.from_yaml()
-controller = BotController(_config)
+registry = BotRegistry(_config)
 
 
 def main(port: int = 8000, host: str = "127.0.0.1") -> None:

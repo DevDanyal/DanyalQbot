@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { BotStatus, Stats } from "@/lib/types";
+import type { BotStatus, QuotexAccount, Stats } from "@/lib/types";
 import { botAction } from "@/lib/api";
 import { fmtMoney, fmtSigned, fmtUptime, todayKey } from "@/lib/format";
 import { Dot, Panel, PanelHead } from "@/components/ui";
@@ -26,10 +26,12 @@ function Row({
 export function AutoTrader({
   status,
   stats,
+  account,
   onAction,
 }: {
   status: BotStatus | null;
   stats: Stats | null;
+  account?: QuotexAccount | null;
   onAction: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -106,7 +108,21 @@ export function AutoTrader({
                 : "idle"}
           </span>
         </Row>
-        <Row label="Mode">{status?.mode ?? "—"}</Row>
+        <Row label="Trading account">
+          {account ? (
+            <>
+              <span className="max-w-[150px] truncate">{account.email}</span>
+              <span className="rounded-full bg-white/[.06] px-2 py-0.5 text-[10px] font-semibold text-soft">
+                {account.mode === "live" ? "LIVE" : "demo"}
+              </span>
+            </>
+          ) : (
+            <span className="text-faint">not connected</span>
+          )}
+        </Row>
+        <Row label="Mode">
+          <span className="capitalize">{status?.mode ?? account?.mode ?? "—"}</span>
+        </Row>
         <Row label="Balance">
           {status?.balance != null ? fmtMoney(status.balance) : "—"}
         </Row>
@@ -118,8 +134,9 @@ export function AutoTrader({
       <div className="mt-4 grid grid-cols-2 gap-2">
         <button
           onClick={() => act("start")}
-          disabled={running || busy}
+          disabled={running || busy || !account}
           className={`${btnBase} bg-gradient-to-r from-mint to-emerald-300 text-ink hover:brightness-110`}
+          title={account ? undefined : "Connect a Quotex account first"}
         >
           ▶ Start trading
         </button>
