@@ -4,6 +4,8 @@ import { getSessionUser } from "@/lib/db";
 import { AUTH_COOKIE } from "@/lib/auth";
 
 // Paths that do not require authentication.
+// /api/v1/* routes handle their own Bearer-token auth internally,
+// so the cookie-only middleware must not block them.
 const PUBLIC_PATHS = [
   "/login",
   "/admin/login",
@@ -11,6 +13,7 @@ const PUBLIC_PATHS = [
   "/api/auth/logout",
   "/api/auth/me",
   "/api/admin/login",
+  "/api/v1",
 ];
 
 const isPublic = (pathname: string) =>

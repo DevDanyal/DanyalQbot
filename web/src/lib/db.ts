@@ -37,8 +37,11 @@ export function getDb(): Client {
 
 let _schemaPromise: Promise<void> | null = null;
 
-export function ensureSchema(): Promise<void> {
-  if (!isDbConfigured()) return Promise.resolve();
+export function ensureSchema(db?: Client): Promise<void> {
+  if (!isDbConfigured() && !db) return Promise.resolve();
+  if (db) return initSchema(db).catch((err) => {
+    throw err;
+  });
   if (!_schemaPromise) {
     _schemaPromise = initSchema().catch((err) => {
       _schemaPromise = null;
@@ -48,10 +51,28 @@ export function ensureSchema(): Promise<void> {
   return _schemaPromise;
 }
 
-export async function initSchema(): Promise<void> {
-  if (!isDbConfigured()) return;
-  const db = getDb();
-  await db.batch([
+/**
+ * Ensures a column exists on an existing table. libSQL/SQLite cannot add
+ * columns inside CREATE TABLE IF NOT EXISTS, so additive migrations are
+ * applied separately whenever the schema is initialized.
+ */
+export async function ensureColumn(
+  db: Client,
+  table: string,
+  column: string,
+  ddl: string,
+): Promise<void> {
+  const info = await db.execute(`PRAGMA table_info(${table})`);
+  const exists = info.rows.some((r) => r.name === column);
+  if (!exists) {
+    await db.execute(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
+}
+
+export async function initSchema(db?: Client): Promise<void> {
+  if (!isDbConfigured() && !db) return;
+  const client = db ?? getDb();
+  await client.batch([
     `CREATE TABLE IF NOT EXISTS customers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id TEXT NOT NULL UNIQUE,
@@ -69,6 +90,9 @@ export async function initSchema(): Promise<void> {
       customer_id INTEGER NOT NULL,
       token_hash TEXT NOT NULL UNIQUE,
       role TEXT NOT NULL DEFAULT 'customer',
+      device_fp TEXT,
+      ip TEXT,
+      user_agent TEXT,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
     )`,
@@ -89,9 +113,108 @@ export async function initSchema(): Promise<void> {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )`,
+    `CREATE TABLE IF NOT EXISTS plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      duration_days INTEGER NOT NULL,
+      device_limit INTEGER NOT NULL DEFAULT 1,
+      price_cents INTEGER NOT NULL DEFAULT 0,
+      description TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS licenses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      license_id TEXT NOT NULL UNIQUE,
+      customer_id INTEGER NOT NULL,
+      plan_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'active',
+      start_at INTEGER NOT NULL,
+      expires_at INTEGER,
+      device_limit INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+      FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE SET NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS devices (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER NOT NULL,
+      license_id INTEGER,
+      device_key_hash TEXT NOT NULL,
+      label TEXT,
+      platform TEXT,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      last_ip TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE,
+      FOREIGN KEY (license_id) REFERENCES licenses(id) ON DELETE SET NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS security_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_type TEXT NOT NULL DEFAULT 'customer',
+      actor_id INTEGER,
+      actor_role TEXT NOT NULL DEFAULT 'customer',
+      action TEXT NOT NULL,
+      detail TEXT,
+      ip TEXT,
+      device_fp TEXT,
+      created_at INTEGER NOT NULL
+    )`,
+    `CREATE TABLE IF NOT EXISTS activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER,
+      action TEXT NOT NULL,
+      detail TEXT,
+      meta TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_bucket ON login_attempts(bucket)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_customer ON licenses(customer_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_licenses_status ON licenses(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_devices_customer ON devices(customer_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_customer_key ON devices(customer_id, device_key_hash)`,
+    `CREATE INDEX IF NOT EXISTS idx_security_logs_created ON security_logs(created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_security_logs_actor ON security_logs(actor_id, actor_role)`,
+    `CREATE INDEX IF NOT EXISTS idx_activity_logs_customer ON activity_logs(customer_id, created_at)`,
   ]);
+
+  // Additive migration: newer attributes on sessions. The sessions table may
+  // already exist in production without these columns.
+  await ensureColumn(client, "sessions", "device_fp", "device_fp TEXT");
+  await ensureColumn(client, "sessions", "ip", "ip TEXT");
+  await ensureColumn(client, "sessions", "user_agent", "user_agent TEXT");
+
+  await seedDefaultPlans(client);
+}
+
+// ---- Default plans ----
+
+const DEFAULT_PLANS = [
+  { code: "FREE", name: "Free", duration_days: 7, device_limit: 1, price_cents: 0, description: "Basic features for 7 days, 1 device." },
+  { code: "PRO", name: "Pro", duration_days: 30, device_limit: 1, price_cents: 0, description: "Full features for 30 days, 1 device." },
+  { code: "PREMIUM", name: "Premium", duration_days: 90, device_limit: 1, price_cents: 0, description: "Full features for 90 days, priority support." },
+  { code: "YEARLY", name: "Yearly", duration_days: 365, device_limit: 2, price_cents: 0, description: "Full features for 365 days, up to 2 devices." },
+] as const;
+
+export async function seedDefaultPlans(db?: Client): Promise<void> {
+  if (!isDbConfigured() && !db) return;
+  const client = db ?? getDb();
+  const now = Date.now();
+  await client.batch(
+    DEFAULT_PLANS.map((p) => ({
+      sql:
+        "INSERT OR IGNORE INTO plans (code, name, duration_days, device_limit, price_cents, description, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?)",
+      args: [p.code, p.name, p.duration_days, p.device_limit, p.price_cents, p.description, now, now],
+    })),
+  );
 }
 
 // ---- Password hashing (Node built-in scrypt) ----
@@ -284,16 +407,103 @@ export async function createSession(
   customerId: number | null,
   role: "customer" | "admin",
   ttlMs: number,
+  meta?: { deviceFp?: string; ip?: string; userAgent?: string },
+  db?: Client,
 ): Promise<string> {
-  await ensureSchema();
-  const db = getDb();
+  await ensureSchema(db);
+  const client = db ?? getDb();
   const token = newSessionToken();
   const now = Date.now();
-  await db.execute({
-    sql: "INSERT INTO sessions (customer_id, token_hash, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
-    args: [customerId ?? 0, hashToken(token), role, now, now + ttlMs],
+  await client.execute({
+    sql: "INSERT INTO sessions (customer_id, token_hash, role, device_fp, ip, user_agent, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    args: [
+      customerId ?? 0,
+      hashToken(token),
+      role,
+      meta?.deviceFp ?? null,
+      meta?.ip ?? null,
+      meta?.userAgent ?? null,
+      now,
+      now + ttlMs,
+    ],
   });
   return token;
+}
+
+export interface SessionRow {
+  id: number;
+  customerId: number;
+  tokenHash: string;
+  role: "customer" | "admin";
+  deviceFp: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: number;
+  expiresAt: number;
+}
+
+export async function getSessionByToken(
+  token: string,
+  db?: Client,
+): Promise<SessionRow | null> {
+  if (!isDbConfigured() && !db) return null;
+  if (!token) return null;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const res = await client.execute({
+    sql: "SELECT id, customer_id, token_hash, role, device_fp, ip, user_agent, created_at, expires_at FROM sessions WHERE token_hash = ?",
+    args: [hashToken(token)],
+  });
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0];
+  return {
+    id: Number(r.id),
+    customerId: Number(r.customer_id),
+    tokenHash: r.token_hash as string,
+    role: (r.role as "customer" | "admin") ?? "customer",
+    deviceFp: (r.device_fp as string | null) ?? null,
+    ip: (r.ip as string | null) ?? null,
+    userAgent: (r.user_agent as string | null) ?? null,
+    createdAt: Number(r.created_at),
+    expiresAt: Number(r.expires_at),
+  };
+}
+
+export async function listSessionsByCustomer(
+  customerId: number,
+  db?: Client,
+): Promise<SessionRow[]> {
+  if (!isDbConfigured() && !db) return [];
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const res = await client.execute({
+    sql: "SELECT id, customer_id, token_hash, role, device_fp, ip, user_agent, created_at, expires_at FROM sessions WHERE customer_id = ? AND expires_at > ? ORDER BY created_at DESC",
+    args: [customerId, Date.now()],
+  });
+  return res.rows.map((r) => ({
+    id: Number(r.id),
+    customerId: Number(r.customer_id),
+    tokenHash: r.token_hash as string,
+    role: (r.role as "customer" | "admin") ?? "customer",
+    deviceFp: (r.device_fp as string | null) ?? null,
+    ip: (r.ip as string | null) ?? null,
+    userAgent: (r.user_agent as string | null) ?? null,
+    createdAt: Number(r.created_at),
+    expiresAt: Number(r.expires_at),
+  }));
+}
+
+export async function revokeAllSessions(
+  customerId: number,
+  db?: Client,
+): Promise<void> {
+  if (!isDbConfigured() && !db) return;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  await client.execute({
+    sql: "DELETE FROM sessions WHERE customer_id = ?",
+    args: [customerId],
+  });
 }
 
 export async function getSessionUser(token: string): Promise<SessionUser | null> {
@@ -327,11 +537,11 @@ export async function getSessionUser(token: string): Promise<SessionUser | null>
   };
 }
 
-export async function deleteSession(token: string): Promise<void> {
-  if (!isDbConfigured()) return;
-  await ensureSchema();
-  const db = getDb();
-  await db.execute({
+export async function deleteSession(token: string, db?: Client): Promise<void> {
+  if (!isDbConfigured() && !db) return;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  await client.execute({
     sql: "DELETE FROM sessions WHERE token_hash = ?",
     args: [hashToken(token)],
   });
@@ -343,17 +553,17 @@ const MAX_ATTEMPTS = 5;
 const LOCKOUT_MS = 15 * 60 * 1000;
 const WINDOW_MS = 15 * 60 * 1000;
 
-export async function checkRateLimit(bucket: string): Promise<number | null> {
-  if (!isDbConfigured()) return null;
-  await ensureSchema();
-  const db = getDb();
+export async function checkRateLimit(bucket: string, db?: Client): Promise<number | null> {
+  if (!isDbConfigured() && !db) return null;
+  await ensureSchema(db);
+  const client = db ?? getDb();
   const now = Date.now();
-  const row = await db.execute({
+  const row = await client.execute({
     sql: "SELECT count, window_start, locked_until FROM login_attempts WHERE bucket = ?",
     args: [bucket],
   });
   if (row.rows.length === 0) {
-    await db.execute({
+    await client.execute({
       sql: "INSERT INTO login_attempts (bucket, count, window_start, locked_until) VALUES (?, 1, ?, NULL)",
       args: [bucket, now],
     });
@@ -367,7 +577,7 @@ export async function checkRateLimit(bucket: string): Promise<number | null> {
   const windowStart = Number(r.window_start);
   if (now - windowStart > WINDOW_MS) {
     // reset window
-    await db.execute({
+    await client.execute({
       sql: "UPDATE login_attempts SET count = 1, window_start = ?, locked_until = NULL WHERE bucket = ?",
       args: [now, bucket],
     });
@@ -376,17 +586,17 @@ export async function checkRateLimit(bucket: string): Promise<number | null> {
   return null;
 }
 
-export async function recordFailedAttempt(bucket: string): Promise<{ locked: boolean; retryAfterMs: number | null }> {
-  if (!isDbConfigured()) return { locked: false, retryAfterMs: null };
-  await ensureSchema();
-  const db = getDb();
+export async function recordFailedAttempt(bucket: string, db?: Client): Promise<{ locked: boolean; retryAfterMs: number | null }> {
+  if (!isDbConfigured() && !db) return { locked: false, retryAfterMs: null };
+  await ensureSchema(db);
+  const client = db ?? getDb();
   const now = Date.now();
-  const row = await db.execute({
+  const row = await client.execute({
     sql: "SELECT count, window_start, locked_until FROM login_attempts WHERE bucket = ?",
     args: [bucket],
   });
   if (row.rows.length === 0) {
-    await db.execute({
+    await client.execute({
       sql: "INSERT INTO login_attempts (bucket, count, window_start, locked_until) VALUES (?, 1, ?, NULL)",
       args: [bucket, now],
     });
@@ -396,22 +606,22 @@ export async function recordFailedAttempt(bucket: string): Promise<{ locked: boo
   const count = Number(r.count) + 1;
   if (count >= MAX_ATTEMPTS) {
     const lockedUntil = now + LOCKOUT_MS;
-    await db.execute({
+    await client.execute({
       sql: "UPDATE login_attempts SET count = ?, locked_until = ? WHERE bucket = ?",
       args: [count, lockedUntil, bucket],
     });
     return { locked: true, retryAfterMs: LOCKOUT_MS };
   }
-  await db.execute({
+  await client.execute({
     sql: "UPDATE login_attempts SET count = ? WHERE bucket = ?",
     args: [count, bucket],
   });
   return { locked: false, retryAfterMs: null };
 }
 
-export async function clearRateLimit(bucket: string): Promise<void> {
-  if (!isDbConfigured()) return;
-  await ensureSchema();
-  const db = getDb();
-  await db.execute({ sql: "DELETE FROM login_attempts WHERE bucket = ?", args: [bucket] });
+export async function clearRateLimit(bucket: string, db?: Client): Promise<void> {
+  if (!isDbConfigured() && !db) return;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  await client.execute({ sql: "DELETE FROM login_attempts WHERE bucket = ?", args: [bucket] });
 }

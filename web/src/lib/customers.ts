@@ -1,4 +1,5 @@
 import { getDb, isDbConfigured, hashPassword, ensureSchema } from "./db";
+import type { Client } from "@libsql/client";
 
 export interface Customer {
   id: number;
@@ -90,11 +91,11 @@ export async function listCustomers(): Promise<PublicCustomer[]> {
   );
 }
 
-export async function findCustomerByUserId(userId: string): Promise<(Customer & { password_hash: string }) | null> {
-  if (!isDbConfigured()) return null;
-  await ensureSchema();
-  const db = getDb();
-  const res = await db.execute({
+export async function findCustomerByUserId(userId: string, db?: Client): Promise<(Customer & { password_hash: string }) | null> {
+  if (!isDbConfigured() && !db) return null;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const res = await client.execute({
     sql: "SELECT * FROM customers WHERE user_id = ?",
     args: [userId.trim().toUpperCase()],
   });
@@ -114,11 +115,11 @@ export async function findCustomerByUserId(userId: string): Promise<(Customer & 
   };
 }
 
-export async function findCustomerById(id: number): Promise<Customer | null> {
-  if (!isDbConfigured()) return null;
-  await ensureSchema();
-  const db = getDb();
-  const res = await db.execute({ sql: "SELECT * FROM customers WHERE id = ?", args: [id] });
+export async function findCustomerById(id: number, db?: Client): Promise<Customer | null> {
+  if (!isDbConfigured() && !db) return null;
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const res = await client.execute({ sql: "SELECT * FROM customers WHERE id = ?", args: [id] });
   if (res.rows.length === 0) return null;
   const r = res.rows[0];
   return {
@@ -151,17 +152,31 @@ export async function extendCustomerExpiry(id: number, days: number): Promise<Cu
   return findCustomerById(id);
 }
 
-export async function bindDevice(id: number, deviceId: string): Promise<void> {
-  await ensureSchema();
-  const db = getDb();
-  await db.execute({ sql: "UPDATE customers SET device_id = ? WHERE id = ?", args: [deviceId, id] });
+export async function bindDevice(id: number, deviceId: string, db?: Client): Promise<void> {
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  await client.execute({ sql: "UPDATE customers SET device_id = ? WHERE id = ?", args: [deviceId, id] });
 }
 
-export async function recordLogin(id: number, ip: string | null): Promise<void> {
-  await ensureSchema();
-  const db = getDb();
-  await db.execute({
+export async function recordLogin(id: number, ip: string | null, db?: Client): Promise<void> {
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  await client.execute({
     sql: "UPDATE customers SET last_login = ?, last_ip = ? WHERE id = ?",
     args: [Date.now(), ip, id],
+  });
+}
+
+export async function resetCustomerPassword(
+  id: number,
+  newPassword: string,
+  db?: Client,
+): Promise<void> {
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const hash = hashPassword(newPassword);
+  await client.execute({
+    sql: "UPDATE customers SET password_hash = ? WHERE id = ?",
+    args: [hash, id],
   });
 }
