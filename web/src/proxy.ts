@@ -35,6 +35,21 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Admin pages are token-authenticated: the client stores the bearer token
+  // and everything sensitive is fetched through /api/v1/admin/* which enforces
+  // admin-only backend auth. The marker cookie here is a soft frontend gate so
+  // non-authenticated visitors are sent to the admin login without a round
+  // trip, while the real authorization always happens server-side.
+  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+    if (session && session.role !== "admin") {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+    if (!session && !request.cookies.get("qx_admin_ok")?.value) {
+      return NextResponse.redirect(new URL("/admin/login", request.url));
+    }
+    return NextResponse.next();
+  }
+
   // No/expired session -> protect the route.
   if (!session) {
     if (pathname.startsWith("/api/")) {

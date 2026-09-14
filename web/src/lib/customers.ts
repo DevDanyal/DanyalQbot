@@ -180,3 +180,59 @@ export async function resetCustomerPassword(
     args: [hash, id],
   });
 }
+
+/**
+ * Customer-initiated password change. Verifies the current password before
+ * updating. Returns false if current password is wrong or customer not found.
+ */
+export async function changeCustomerPassword(
+  id: number,
+  currentPassword: string,
+  newPassword: string,
+  db?: Client,
+): Promise<boolean> {
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const { verifyPassword } = await import("./db");
+  const res = await client.execute({
+    sql: "SELECT id, password_hash FROM customers WHERE id = ?",
+    args: [id],
+  });
+  if (res.rows.length === 0) return false;
+  const hash = res.rows[0].password_hash as string;
+  if (!verifyPassword(currentPassword, hash)) return false;
+  const newHash = hashPassword(newPassword);
+  await client.execute({
+    sql: "UPDATE customers SET password_hash = ? WHERE id = ?",
+    args: [newHash, id],
+  });
+  return true;
+}
+
+/**
+ * Returns customer profile (safe subset without password hash).
+ */
+export async function getCustomerProfile(
+  id: number,
+  db?: Client,
+): Promise<Omit<Customer, "device_id"> & { registeredDevices: number } | null> {
+  await ensureSchema(db);
+  const client = db ?? getDb();
+  const res = await client.execute({
+    sql: "SELECT c.*, (SELECT COUNT(*) FROM devices d WHERE d.customer_id = c.id AND d.is_active = 1) AS device_count FROM customers c WHERE c.id = ?",
+    args: [id],
+  });
+  if (res.rows.length === 0) return null;
+  const r = res.rows[0];
+  return {
+    id: Number(r.id),
+    user_id: r.user_id as string,
+    name: r.name as string,
+    status: r.status as string,
+    expires_at: r.expires_at == null ? null : Number(r.expires_at),
+    created_at: Number(r.created_at),
+    last_login: r.last_login == null ? null : Number(r.last_login),
+    last_ip: (r.last_ip as string | null) ?? null,
+    registeredDevices: Number(r.device_count ?? 0),
+  };
+}

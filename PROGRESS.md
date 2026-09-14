@@ -1,11 +1,78 @@
 # Project Status — handoff notes
 
-Last updated: 2026-09-10
+Last updated: 2026-09-11
 
 Everything below is committed and pushed to GitHub (`origin/main`).
 Secrets live ONLY in gitignored local files and Vercel env vars — never in the repo.
 
-Latest commit: `1a10379` (token-based V1 API, admin endpoints, tests, docs).
+---
+
+## Session 2026-09-11 — Professional admin panel (DONE)
+
+Built the professional dark admin dashboard on top of the token-based V1
+admin APIs. No backend API changes were needed — the panel consumes the
+existing `/api/v1/admin/*` contract.
+
+### What changed
+
+- **Frontend admin panel** (`web/src/app/admin/`):
+  - `layout.tsx` — sidebar + topbar shell, responsive (sidebar slides in/out on
+    mobile with overlay), active-route highlighting, logout.
+  - `login/page.tsx` — token-based admin login against `POST /api/v1/admin/login`,
+    stores token in localStorage, lockout countdown on 429.
+  - `dashboard/page.tsx` — stat cards (users, licenses by status, devices,
+    sessions) + recent security & activity tables, 30s auto-refresh.
+  - `users/page.tsx` — search, create user (with plan), view detail modal
+    (license, devices, sessions, logs), suspend/activate, reset password.
+  - `licenses/page.tsx` — status filter tabs, create license, extend, suspend,
+    revoke, activate, change plan.
+  - `devices/page.tsx` — search, activate/deactivate/revoke per device, reset
+    all devices for a user (releases the slot so a new device can register).
+  - `plans/page.tsx` — create/edit/deactivate plans (duration, device limit,
+    price, description).
+  - `security/page.tsx` — security log table with severity badges, filter.
+  - `activity/page.tsx` — activity log table with parsed meta.
+  - `settings/page.tsx` — session/security/ops notes.
+- **`web/src/lib/admin-api.ts`** (new) — token helpers + `adminFetch/adminGet/
+  adminPost/adminPatch`; on 401 clears session and redirects to `/admin/login`;
+  sets a `qx_admin_ok` marker cookie so the proxy can soft-gate admin pages.
+- **`web/src/proxy.ts`** — admin pages no longer redirect based purely on the
+  customer cookie; the client owns the bearer token. Proxy still blocks
+  customers (role check) and redirects anonymous visitors to `/admin/login`.
+  The real authorization stays server-side on every `/api/v1/admin/*` route
+  via `requireAdminFromToken`.
+- Fixed the pre-existing `react-hooks/set-state-in-effect` lint error in
+  `quotex-account.tsx` (deferred `load()` via `setTimeout`, same as other
+  components). Lint is now **0 errors** (5 warnings remain, all benign).
+
+### Verified
+
+- `npm run build` — passes, all `/admin/*` and `/api/v1/admin/*` routes listed.
+- `npm test` — **59/59** pass.
+- `cd quotex_bot && python -m pytest tests/` — **36/36** pass.
+- `npm run lint` — **0 errors** (warnings only: pre-existing unused `_meta`,
+  `window.location.href` in admin-api helper for hard session-expiry redirect).
+- Live smoke test against the dev server (Turso): admin login → dashboard →
+  users/licenses/devices/plans/security/activity all render with real data;
+  customer tokens are rejected on admin routes; mobile hamburger + off-canvas
+  sidebar verified.
+
+### Notes / gotchas for next time
+
+- Admin session is localStorage `admin_token` + the `qx_admin_ok` cookie (soft
+  gate). Never rely on the cookie alone — backend enforces admin-only.
+- `window.location.href` on 401 in `admin-api.ts` is intentional (hard reload
+  clears React state and auth); ESLint warns but it is the right tool there.
+- Dev screenshot/console artifacts (`.playwright-mcp/`, `mobile-dashboard.png`)
+  are gitignored/removed.
+
+### Next tasks
+
+1. **Backtest the strategy edge** (`backtesting` skill) before any live trade.
+2. **Android app** — login + license flow against `/api/v1/*`; see `web/TASK.md`.
+3. **Monetization** — payment provider + purchase flow (`web/TASK.md`).
+4. **Deploy Flask backend on Render** (blocked on card) + update `FLASK_URL`.
+5. **Hardening** — per-admin accounts/RBAC, email notifications, refresh tokens.
 
 ---
 

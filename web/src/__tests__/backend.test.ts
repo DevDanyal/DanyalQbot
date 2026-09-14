@@ -82,6 +82,21 @@ import {
 import { logSecurity, logActivity, listSecurityLogs, listActivityLogs } from "@/lib/audit";
 import { loginFlow } from "@/lib/auth-service";
 import { resolveAuthFromToken, requireAdminFromToken, ApiError } from "@/lib/api-auth";
+import {
+  createNotification,
+  createNotificationIfNew,
+  listNotifications,
+  unreadCount,
+  markRead,
+  markAllRead,
+  announceToAll,
+} from "@/lib/notifications";
+import {
+  getAppVersion,
+  getAllVersions,
+  upsertAppVersion,
+} from "@/lib/app-version";
+import { changeCustomerPassword, getCustomerProfile } from "@/lib/customers";
 
 // ─── 1. Password hashing ────────────────────────────────────
 describe("Password hashing", () => {
@@ -650,5 +665,219 @@ describe("Token generation", () => {
   it("hashes are deterministic", () => {
     const token = newSessionToken();
     expect(hashToken(token)).toBe(hashToken(token));
+  });
+});
+
+// ─── 13. Notifications ─────────────────────────────────────
+describe("Notifications", () => {
+  let customerId: number;
+
+  beforeEach(async () => {
+    const c = await createCustomer({
+      userId: "DQB-NOTIF-0001",
+      name: "Notif User",
+      password: "testpass",
+      expiresAt: null,
+    });
+    customerId = c.id;
+  });
+
+  it("creates and lists a notification", async () => {
+    await createNotification({
+      customerId,
+      type: "announcement",
+      title: "System update",
+      body: "Scheduled maintenance tonight.",
+    }, db);
+    const list = await listNotifications(customerId, {}, db);
+    expect(list).toHaveLength(1);
+    expect(list[0].title).toBe("System update");
+    expect(list[0].is_read).toBe(false);
+  });
+
+  it("tracks unread count", async () => {
+    await createNotification({ customerId, type: "system", title: "A" }, db);
+    await createNotification({ customerId, type: "system", title: "B" }, db);
+    expect(await unreadCount(customerId, db)).toBe(2);
+  });
+
+  it("marks a notification read", async () => {
+    const n = await createNotification({ customerId, type: "system", title: "A" }, db);
+    expect(await markRead(n.id, customerId, db)).toBe(true);
+    expect(await unreadCount(customerId, db)).toBe(0);
+  });
+
+  it("markRead rejects notifications from another customer", async () => {
+    const other = await createCustomer({
+      userId: "DQB-NOTIF-0002",
+      name: "Other",
+      password: "testpass",
+      expiresAt: null,
+    });
+    const n = await createNotification({ customerId, type: "system", title: "A" }, db);
+    expect(await markRead(n.id, other.id, db)).toBe(false);
+  });
+
+  it("marks all read", async () => {
+    await createNotification({ customerId, type: "system", title: "A" }, db);
+    await createNotification({ customerId, type: "system", title: "B" }, db);
+    const updated = await markAllRead(customerId, db);
+    expect(updated).toBe(2);
+    expect(await unreadCount(customerId, db)).toBe(0);
+  });
+
+  it("deduplicates with createNotificationIfNew within the window", async () => {
+    await createNotificationIfNew({ customerId, type: "license_expiring", title: "Expiring" }, db);
+    await createNotificationIfNew({ customerId, type: "license_expiring", title: "Expiring" }, db);
+    const list = await listNotifications(customerId, {}, db);
+    expect(list).toHaveLength(1);
+  });
+
+  it("announces to all active customers", async () => {
+    const second = await createCustomer({
+      userId: "DQB-NOTIF-0003",
+      name: "Second",
+      password: "testpass",
+      expiresAt: null,
+    });
+    await updateCustomerStatus(second.id, "active");
+    const count = await announceToAll("Hello", "Welcome aboard", db);
+    expect(count).toBeGreaterThanOrEqual(2);
+    const mine = await listNotifications(customerId, {}, db);
+    expect(mine[0].type).toBe("announcement");
+  });
+
+  it("does not announce to inactive customers", async () => {
+    const suspended = await createCustomer({
+      userId: "DQB-NOTIF-0004",
+      name: "Suspended",
+      password: "testpass",
+      expiresAt: null,
+    });
+    await updateCustomerStatus(suspended.id, "revoked");
+    const before = await listNotifications(customerId, {}, db);
+    await announceToAll("Hello", "Everyone", db);
+    const suspendedNotifs = await listNotifications(suspended.id, {}, db);
+    expect(suspendedNotifs).toHaveLength(0);
+    expect(before.length).toBe(0);
+  });
+});
+
+// ─── 14. App versions ──────────────────────────────────────
+describe("App version management", () => {
+  it("seeds a default android version", async () => {
+    const v = await getAppVersion("android", db);
+    expect(v).not.toBeNull();
+    expect(v?.currentVersion).toBe("1.0.0");
+  });
+
+  it("upserts a new platform", async () => {
+    const v = await upsertAppVersion({ platform: "ios", currentVersion: "2.1.0" }, db);
+    expect(v.currentVersion).toBe("2.1.0");
+    expect(v.minimumVersion).toBe("1.0.0");
+  });
+
+  it("updates an existing platform", async () => {
+    await upsertAppVersion({ platform: "android", latestVersion: "2.0.0", minimumVersion: "1.5.0" }, db);
+    const v = await getAppVersion("android", db);
+    expect(v?.latestVersion).toBe("2.0.0");
+    expect(v?.minimumVersion).toBe("1.5.0");
+    expect(v?.currentVersion).toBe("1.0.0");
+  });
+
+  it("lists all versions", async () => {
+    await upsertAppVersion({ platform: "web", currentVersion: "1.2.0" }, db);
+    const all = await getAllVersions(db);
+    expect(all.length).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// ─── 15. Change password ───────────────────────────────────
+describe("Change password", () => {
+  let customerId: number;
+
+  beforeEach(async () => {
+    const c = await createCustomer({
+      userId: "DQB-PW-0001",
+      name: "PW User",
+      password: "oldpass123",
+      expiresAt: null,
+    });
+    customerId = c.id;
+  });
+
+  it("rejects a wrong current password", async () => {
+    const ok = await changeCustomerPassword(customerId, "wrongpass", "newpass123", db);
+    expect(ok).toBe(false);
+  });
+
+  it("changes the password with a correct current password", async () => {
+    const ok = await changeCustomerPassword(customerId, "oldpass123", "newpass123", db);
+    expect(ok).toBe(true);
+    const c = await findCustomerByUserId("DQB-PW-0001", db);
+    expect(c?.password_hash).not.toContain("oldpass123");
+  });
+
+  it("new password verifies after change", async () => {
+    await changeCustomerPassword(customerId, "oldpass123", "brandnew99", db);
+    const { verifyPassword } = await import("@/lib/db");
+    const c = await findCustomerByUserId("DQB-PW-0001", db);
+    expect(verifyPassword("brandnew99", c!.password_hash)).toBe(true);
+    expect(verifyPassword("oldpass123", c!.password_hash)).toBe(false);
+  });
+
+  it("offers a profile with device count", async () => {
+    const profile = await getCustomerProfile(customerId, db);
+    expect(profile?.user_id).toBe("DQB-PW-0001");
+    expect(profile?.registeredDevices).toBe(0);
+  });
+});
+
+// ─── 16. Login flow notification side-effects ──────────────
+describe("Login flow notifications", () => {
+  it("creates an expiring-soon notification for a nearly-expired license", async () => {
+    const c = await createCustomer({
+      userId: "DQB-EXPIRING-1",
+      name: "Expiring",
+      password: "testpass",
+      expiresAt: null,
+    });
+    const plan = await getPlanByCode("PRO");
+    // Expires in ~1 day -> EXPIRING_SOON
+    await createLicenseForCustomer({
+      customerId: c.id,
+      plan: plan!,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    }, db);
+
+    const res = await loginFlow(
+      { userId: "DQB-EXPIRING-1", password: "testpass", deviceKey: "abcd-efgh-ijkl-mnop-qrst" },
+      { ip: "1.2.3.4" },
+      db,
+    );
+    expect(res.ok).toBe(true);
+    const notifs = await listNotifications(c.id, {}, db);
+    expect(notifs.some((n) => n.type === "license_expiring")).toBe(true);
+  });
+
+  it("registers a new device and notifies", async () => {
+    const c = await createCustomer({
+      userId: "DQB-DEVNOTIF-1",
+      name: "Dev",
+      password: "testpass",
+      expiresAt: null,
+    });
+    const plan = await getPlanByCode("PRO");
+    await createLicenseForCustomer({ customerId: c.id, plan: plan! }, db);
+
+    const res = await loginFlow(
+      { userId: "DQB-DEVNOTIF-1", password: "testpass", deviceKey: "fresh-device-key-abc-12345678", platform: "android", label: "Pixel 9" },
+      { ip: "9.9.9.9" },
+      db,
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.device.registered).toBe(true);
+    const notifs = await listNotifications(c.id, {}, db);
+    expect(notifs.some((n) => n.type === "device_registered")).toBe(true);
   });
 });

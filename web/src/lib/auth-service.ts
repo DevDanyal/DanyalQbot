@@ -24,6 +24,7 @@ import {
   verifyDeviceAccess,
 } from "./devices";
 import { logSecurity, logActivity } from "./audit";
+import { createNotificationIfNew } from "./notifications";
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
@@ -126,11 +127,45 @@ export async function loginFlow(
   const status = deriveLicenseStatus(lic);
   if (status === "SUSPENDED") {
     await logSecurity("login.blocked", `License ${lic.license_id} suspended`, { actorId: customer.id, ip: meta.ip, deviceFp: hashDeviceKey(deviceKey) }, db);
+    await createNotificationIfNew(
+      {
+        customerId: customer.id,
+        type: "license_suspended",
+        title: "Your license was suspended",
+        body: "Contact the administrator to reactivate access.",
+      },
+      db,
+    );
     return fail(403, "LICENSE_SUSPENDED", "This license is suspended. Contact the administrator.");
   }
   if (status === "EXPIRED") {
     await logSecurity("login.blocked", `License ${lic.license_id} expired`, { actorId: customer.id, ip: meta.ip, deviceFp: hashDeviceKey(deviceKey) }, db);
+    await createNotificationIfNew(
+      {
+        customerId: customer.id,
+        type: "license_expired",
+        title: "Your license has expired",
+        body: "Renew your license to continue using the bot.",
+      },
+      db,
+    );
     return fail(403, "LICENSE_EXPIRED", "Your license has expired. Contact the administrator to renew.");
+  }
+
+  // Recurring nudge when the license is close to expiring.
+  if (status === "EXPIRING_SOON") {
+    const daysLeft = lic.expires_at != null
+      ? Math.max(0, Math.ceil((lic.expires_at - Date.now()) / (24 * 60 * 60 * 1000)))
+      : 0;
+    await createNotificationIfNew(
+      {
+        customerId: customer.id,
+        type: "license_expiring",
+        title: `Your license expires in ${daysLeft} day${daysLeft === 1 ? "" : "s"}`,
+        body: "Renew before the expiry date to keep the bot running.",
+      },
+      db,
+    );
   }
 
   // Device binding.
@@ -165,6 +200,16 @@ export async function loginFlow(
   const registered = Date.now() - verdict.device.first_seen_at < 5000;
   if (registered) {
     await logSecurity("device.registered", `New device bound for ${userId}`, { actorId: customer.id, ip: meta.ip, deviceFp: verdict.device.device_key_hash }, db);
+    await createNotificationIfNew(
+      {
+        customerId: customer.id,
+        type: "device_registered",
+        title: "New device registered",
+        body: "This device is now bound to your license.",
+        dedupeWindowMs: 10 * 60 * 1000,
+      },
+      db,
+    );
   }
   await logActivity(customer.id, "login", `Signed in from ${meta.ip ?? "unknown IP"}`, { platform: input.platform }, db);
   await recordLogin(customer.id, meta.ip ?? null, db);

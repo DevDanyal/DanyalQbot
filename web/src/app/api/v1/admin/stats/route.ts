@@ -29,11 +29,17 @@ export async function GET(request: NextRequest) {
     const sessionsRes = await db.execute("SELECT COUNT(*) AS n FROM sessions WHERE expires_at > ?", [Date.now()]);
     const activeSessions = Number(sessionsRes.rows[0]?.n ?? 0);
 
+    const notificationsRes = await db.execute("SELECT COUNT(*) AS n FROM notifications");
+    const notificationsTotal = Number(notificationsRes.rows[0]?.n ?? 0);
+    const notificationsUnreadRes = await db.execute("SELECT COUNT(*) AS n FROM notifications WHERE is_read = 0");
+    const notificationsUnread = Number(notificationsUnreadRes.rows[0]?.n ?? 0);
+
     return apiOk({
       customers: { total: totalCustomers, active: activeCustomers },
       licenses: licenseStats,
       devices: { total: devices.length, active: activeDevices },
       activeSessions,
+      notifications: { total: notificationsTotal, unread: notificationsUnread },
     });
   } catch (err) {
     return apiFail(err);

@@ -175,6 +175,25 @@ export async function initSchema(db?: Client): Promise<void> {
       created_at INTEGER NOT NULL,
       FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
     )`,
+    `CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      customer_id INTEGER,
+      type TEXT NOT NULL,
+      title TEXT NOT NULL,
+      body TEXT,
+      is_read INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE CASCADE
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      platform TEXT NOT NULL UNIQUE,
+      current_version TEXT NOT NULL,
+      minimum_version TEXT NOT NULL,
+      latest_version TEXT NOT NULL,
+      release_notes TEXT,
+      updated_at INTEGER NOT NULL
+    )`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_attempts_bucket ON login_attempts(bucket)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_licenses_customer ON licenses(customer_id)`,
@@ -184,6 +203,9 @@ export async function initSchema(db?: Client): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_security_logs_created ON security_logs(created_at)`,
     `CREATE INDEX IF NOT EXISTS idx_security_logs_actor ON security_logs(actor_id, actor_role)`,
     `CREATE INDEX IF NOT EXISTS idx_activity_logs_customer ON activity_logs(customer_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifications_customer ON notifications(customer_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(customer_id, is_read)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_app_versions_platform ON app_versions(platform)`,
   ]);
 
   // Additive migration: newer attributes on sessions. The sessions table may
@@ -193,6 +215,16 @@ export async function initSchema(db?: Client): Promise<void> {
   await ensureColumn(client, "sessions", "user_agent", "user_agent TEXT");
 
   await seedDefaultPlans(client);
+  // Seed a default app version row for android (additive, safe to re-run).
+  const hasVersion = await client.execute({
+    sql: "SELECT COUNT(*) AS n FROM app_versions WHERE platform = 'android'",
+  });
+  if (Number(hasVersion.rows[0]?.n ?? 0) === 0) {
+    await client.execute({
+      sql: "INSERT INTO app_versions (platform, current_version, minimum_version, latest_version, release_notes, updated_at) VALUES ('android', '1.0.0', '1.0.0', '1.0.0', 'Initial release.', ?)",
+      args: [Date.now()],
+    });
+  }
 }
 
 // ---- Default plans ----
