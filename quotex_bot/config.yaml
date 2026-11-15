@@ -37,42 +37,44 @@ market:
   # Otherwise weekend/holiday guard applies (forex). 24/5 typical.
 
 strategy:
-  # variant: ema_trend | streak_reversal
+  # variant: ema_trend | streak_reversal | confluence
   #   ema_trend        - EMA-50 trend filter + optional strong-body trigger (original)
-  #   streak_reversal  - trade after N consecutive same-direction 5s candles.
-  #                      Backtests on the 2026-08-06 session put streak>=3 at
-  #                      60s around 54.7% (break-even 54.05%), but the edge was
-  #                      NOT stable across the two halves of the day. Keep this
-  #                      opt-in until multi-day data confirms it; it is not
-  #                      proven and must not be used on a live account yet.
-  variant: ema_trend
+  #   streak_reversal  - trade after N consecutive same-direction 5s candles (opt-in)
+  #   confluence       - stronger UP/DOWN analyzer: EMA trend+slope + RSI + MACD +
+  #                      short momentum + S/R proximity filter. Returns NO TRADE
+  #                      unless enough signals agree (min_confluence). Not 100%.
+  variant: confluence
   min_streak: 3             # used only by variant=streak_reversal
   direction_timeframe: 60   # seconds, trend-filter candles (1m)
   direction_ema_period: 50  # EMA period on direction candles
   entry_timeframe: 5        # seconds, entry-trigger candles (5s)
-  expiry_seconds: 60        # trade expiry in seconds.
-                            # Platform minimum is 30s (5s/15s rejected with
-                            # expiration/open_time errors). 60s is the
-                            # shortest reliable, grid-aligned expiry.
-  # Direction-first: EMA-50 trend decides buy/sell (price>EMA & rising -> buy,
-  # price<EMA & falling -> sell). When require_strong_body is false the bot
-  # trades every clear trend direction as long as the market is alive.
-  require_strong_body: false   # true = old strict "strong candle body" filter
-  min_body_pips: 0.00001       # "market alive" floor on candle body size
-  body_vs_avg_ratio: 1.5       # used only when require_strong_body is true
-  ema_slope_bars: 3         # require EMA rising (buy) / falling (sell) over this many direction candles
-                            # -> no signals in flat/choppy markets
-  reversal: true            # baseline direction mode; the research agent overrides this
-                            # per pair when the measured regime differs (claude.md section 4/8).
+  expiry_seconds: 60        # trade expiry in seconds (platform minimum reliable 30-60s)
+  # ema_trend options (kept for compatibility)
+  require_strong_body: false
+  min_body_pips: 0.00001
+  body_vs_avg_ratio: 1.5
+  ema_slope_bars: 3
+  reversal: false            # baseline direction mode (research agent may override)
+  # confluence options
+  rsi_period: 14
+  rsi_buy: 55.0
+  rsi_sell: 45.0
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+  sr_lookback: 20
+  sr_buffer_ratio: 0.15
+  min_confluence: 3
 
 research:
-  # The research sub-agent measures each pair's live mean-reversion rate
-  # before every trade and REFUSES to trade when no edge is proven. It only
-  # allows a pair when measured reversal accuracy beats break-even + margin.
-  min_sample: 20            # minimum number of real-body candles required for a verdict
-  margin: 0.03              # safety margin above break-even win rate (54% @ 0.85 payout -> 57% needed)
-  min_body_fraction: 0.15   # at least this share of candles must have a real body (market alive)
-  cooldown: 120             # seconds between research re-runs
+  # Legacy gate: blocks trades unless single-candle flip edge beats break-even.
+  # It can leave the bot idle for other strategies (e.g. confluence). Set
+  # enabled: false to let the strategy + learning decide.
+  enabled: false
+  min_sample: 20
+  margin: 0.03
+  min_body_fraction: 0.15
+  cooldown: 120
 
 learning:
   # The bot learns from its own trade history. Every trade is remembered

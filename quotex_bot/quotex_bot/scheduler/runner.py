@@ -46,6 +46,15 @@ class Runner:
             require_strong_body=config.strategy.get("require_strong_body", False),
             variant=config.strategy.get("variant", "ema_trend"),
             min_streak=config.strategy.get("min_streak", 3),
+            rsi_period=config.strategy.get("rsi_period", 14),
+            rsi_buy=config.strategy.get("rsi_buy", 55.0),
+            rsi_sell=config.strategy.get("rsi_sell", 45.0),
+            macd_fast=config.strategy.get("macd_fast", 12),
+            macd_slow=config.strategy.get("macd_slow", 26),
+            macd_signal=config.strategy.get("macd_signal", 9),
+            sr_lookback=config.strategy.get("sr_lookback", 20),
+            sr_buffer_ratio=config.strategy.get("sr_buffer_ratio", 0.15),
+            min_confluence=config.strategy.get("min_confluence", 3),
         )
         self.risk = RiskManager(
             bet_percent=config.risk.get("bet_percent", 0.01),
@@ -75,6 +84,7 @@ class Runner:
         self._summary_day: str | None = None
         self._summary: dict | None = None
         res = config.get("research", {})
+        self.research_enabled = bool(res.get("enabled", True))
         self.research = ResearchAgent(
             connector=self.connector,
             pairs=self.pairs,
@@ -176,16 +186,20 @@ class Runner:
             time.sleep(self.idle_sleep)
             return failures
 
-        self.research.refresh()
+        if self.research_enabled:
+            self.research.refresh()
         traded = False
         for pair in self.pairs:
             if not market.market_is_open(pair, now, self.tz):
                 continue
-            verdict = self.research.verdict(pair)
-            if not verdict.allowed:
-                log.debug("RESEARCH %s | no edge: %s", pair, verdict.reason)
-                continue
-            traded = self._trade_once(pair, balance, day_key, verdict.reversal) or traded
+            rev = None
+            if self.research_enabled:
+                verdict = self.research.verdict(pair)
+                rev = verdict.reversal
+                if not verdict.allowed:
+                    log.info("RESEARCH %s | skip: %s", pair, verdict.reason)
+                    continue
+            traded = self._trade_once(pair, balance, day_key, rev) or traded
         if not traded:
             if stop_event is not None:
                 stop_event.wait(self.check_interval)
@@ -233,13 +247,15 @@ class Runner:
         result = self._resolve(order)
         balance = self.connector.get_balance()
         self.risk.record_trade(result.pnl, balance, day_key)
-        self.experience.record(pair, order.direction, result.win, result.pnl)
+        if result.pnl != 0:
+            self.experience.record(pair, order.direction, result.pnl > 0, result.pnl)
+        outcome = "WIN" if result.pnl > 0 else ("LOSS" if result.pnl < 0 else "REFUND")
         if self._summary:
             self._summary["trades"] += 1
             self._summary["pnl"] += result.pnl
-            if result.win:
+            if outcome == "WIN":
                 self._summary["wins"] += 1
-            else:
+            elif outcome == "LOSS":
                 self._summary["losses"] += 1
             self._summary["end_balance"] = balance
         self.trades_csv.write({
@@ -250,16 +266,18 @@ class Runner:
             "amount": order.amount,
             "expiry": order.expiry,
             "open_price": order.open_price,
-            "result": "WIN" if result.win else "LOSS",
+            "result": outcome,
             "payout": result.payout,
             "pnl": round(result.pnl, 2),
             "balance_after": round(balance, 2),
             "signal_reason": signal.reason,
         })
-        if result.win:
+        if outcome == "WIN":
             log.info("WIN %s +%.2f | balance %.2f", pair, result.pnl, balance)
-        else:
+        elif outcome == "LOSS":
             log.info("LOSS %s %.2f | balance %.2f", pair, result.pnl, balance)
+        else:
+            log.info("REFUND %s 0.00 | balance %.2f", pair, balance)
         return True
 
     def _resolve(self, order: TradeOrder):
@@ -285,6 +303,13 @@ class Runner:
         if self.risk.start_balance is None:
             self.risk.start_balance = balance
         log.info("Connected. Balance: %.2f", balance)
+        if self.risk.killed:
+            now = datetime.now(timezone.utc)
+            if self.risk.day_key(now) != self.risk.current_day:
+                self.risk.start_day(balance, self.risk.day_key(now))
+                log.info("Kill-switch cleared for new day %s", self.risk.current_day)
+            else:
+                log.warning("Kill-switch active (%s); trading paused until new day", self.risk.kill_reason)
 
     def _safe_close(self) -> None:
         try:

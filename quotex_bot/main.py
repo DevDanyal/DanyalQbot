@@ -68,6 +68,15 @@ def _backtest(config: Config, candles_csv: str, args) -> None:
             require_strong_body=config.strategy.get("require_strong_body", True),
             variant=variant,
             min_streak=min_streak,
+            rsi_period=config.strategy.get("rsi_period", 14),
+            rsi_buy=config.strategy.get("rsi_buy", 55.0),
+            rsi_sell=config.strategy.get("rsi_sell", 45.0),
+            macd_fast=config.strategy.get("macd_fast", 12),
+            macd_slow=config.strategy.get("macd_slow", 26),
+            macd_signal=config.strategy.get("macd_signal", 9),
+            sr_lookback=config.strategy.get("sr_lookback", 20),
+            sr_buffer_ratio=config.strategy.get("sr_buffer_ratio", 0.15),
+            min_confluence=config.strategy.get("min_confluence", 3),
             initial_balance=float(args.initial_balance),
         )
 
@@ -102,7 +111,7 @@ def main() -> int:
     parser.add_argument("--initial-balance", default="10000", help="starting balance for backtest")
     parser.add_argument("--split", action="store_true",
                         help="also report first-half vs second-half backtest results")
-    parser.add_argument("--variant", choices=["ema_trend", "streak_reversal"], default=None,
+    parser.add_argument("--variant", choices=["ema_trend", "streak_reversal", "confluence"], default=None,
                         help="override strategy.variant for this run")
     parser.add_argument("--min-streak", type=int, default=None,
                         help="override strategy.min_streak for this run")

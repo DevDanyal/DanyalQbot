@@ -100,14 +100,17 @@ class ExperienceMemory:
                             hour = int(raw_time.split("T")[1].split(":")[0])
                         except (IndexError, ValueError):
                             hour = 0
+                    pnl = float(row.get("pnl", 0) or 0)
+                    if result == "REFUND" or (pnl == 0.0 and result not in ("WIN", "LOSS")):
+                        continue
                     key = _bucket(pair, direction, hour)
                     b = self.buckets.setdefault(key, self._blank())
                     b["trades"] += 1
-                    if result == "WIN":
+                    if result == "WIN" or pnl > 0:
                         b["wins"] += 1
-                    else:
+                    elif result == "LOSS" or pnl < 0:
                         b["losses"] += 1
-                    b["pnl"] += float(row.get("pnl", 0) or 0)
+                    b["pnl"] += pnl
                     seeded += 1
         except OSError as exc:
             log.warning("Could not seed experience from %s (%s)", seed_csv, exc)

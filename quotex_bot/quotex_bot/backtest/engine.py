@@ -43,7 +43,11 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
              initial_balance: float = 10000.0, entry_window: int = 25,
              min_dir_candles: int = 60, ema_slope_bars: int = 3,
              reversal: bool = False, require_strong_body: bool = True,
-             variant: str = "ema_trend", min_streak: int = 3) -> dict:
+             variant: str = "ema_trend", min_streak: int = 3,
+             rsi_period: int = 14, rsi_buy: float = 55.0, rsi_sell: float = 45.0,
+             macd_fast: int = 12, macd_slow: int = 26, macd_signal: int = 9,
+             sr_lookback: int = 20, sr_buffer_ratio: float = 0.15,
+             min_confluence: int = 3) -> dict:
     candles_5s.sort(key=lambda c: c.time)
     dir_candles = aggregate(candles_5s, direction_timeframe)
     dir_closes = [c.close for c in dir_candles]
@@ -60,6 +64,15 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
         require_strong_body=require_strong_body,
         variant=variant,
         min_streak=min_streak,
+        rsi_period=rsi_period,
+        rsi_buy=rsi_buy,
+        rsi_sell=rsi_sell,
+        macd_fast=macd_fast,
+        macd_slow=macd_slow,
+        macd_signal=macd_signal,
+        sr_lookback=sr_lookback,
+        sr_buffer_ratio=sr_buffer_ratio,
+        min_confluence=min_confluence,
     )
 
     balance = initial_balance
