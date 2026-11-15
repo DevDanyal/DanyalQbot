@@ -42,7 +42,8 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
              min_body_pips: float = 0.0003, body_vs_avg_ratio: float = 1.5,
              initial_balance: float = 10000.0, entry_window: int = 25,
              min_dir_candles: int = 60, ema_slope_bars: int = 3,
-             reversal: bool = False) -> dict:
+             reversal: bool = False, require_strong_body: bool = True,
+             variant: str = "ema_trend", min_streak: int = 3) -> dict:
     candles_5s.sort(key=lambda c: c.time)
     dir_candles = aggregate(candles_5s, direction_timeframe)
     dir_closes = [c.close for c in dir_candles]
@@ -56,6 +57,9 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
         avg_body_window=entry_window,
         ema_slope_bars=ema_slope_bars,
         reversal=reversal,
+        require_strong_body=require_strong_body,
+        variant=variant,
+        min_streak=min_streak,
     )
 
     balance = initial_balance
@@ -78,17 +82,18 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
     def dir_candles_at(candle_time: float) -> list[Candle]:
         return [c for c in dir_candles if c.time <= candle_time]
 
-    i = min_dir_candles
+    i = entry_window - 1 if variant == "streak_reversal" else min_dir_candles
     while i < len(candles_5s):
         candle = candles_5s[i]
         if candle.time <= last_signal_time:
             i += 1
             continue
 
-        ema_val = ema_at(candle.time)
-        if ema_val is None:
-            i += 1
-            continue
+        if variant != "streak_reversal":
+            ema_val = ema_at(candle.time)
+            if ema_val is None:
+                i += 1
+                continue
 
         entry = candles_5s[max(0, i - entry_window + 1): i + 1]
         dirs = dir_candles_at(candle.time)
@@ -107,10 +112,15 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
         if j >= len(candles_5s):
             break
         exit_price = candles_5s[j].close
-
-        win = (exit_price > fill) if signal.direction == "buy" else (exit_price < fill)
         bet = max(0.10, balance * bet_percent)
-        pnl = bet * payout if win else -bet
+
+        if exit_price == fill:
+            # Live Quotex settles an exact tie as a refund ("equal" -> pnl 0).
+            win, result, pnl = False, "refund", 0.0
+        else:
+            win = (exit_price > fill) if signal.direction == "buy" else (exit_price < fill)
+            result = "win" if win else "loss"
+            pnl = bet * payout if win else -bet
         balance += pnl
         trades.append({
             "time": candle.time,
@@ -119,6 +129,7 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
             "fill": fill,
             "exit": exit_price,
             "win": win,
+            "result": result,
             "pnl": round(pnl, 2),
             "reason": signal.reason,
         })
@@ -129,8 +140,10 @@ def simulate(candles_5s: list[Candle], direction_timeframe: int = 60,
 
 
 def summarize(trades: list[dict], initial_balance: float, payout: float) -> dict:
-    wins = sum(1 for t in trades if t["win"])
-    losses = len(trades) - wins
+    wins = sum(1 for t in trades if t.get("result", "win" if t["win"] else "loss") == "win")
+    losses = sum(1 for t in trades if t.get("result", "win" if t["win"] else "loss") == "loss")
+    refunds = sum(1 for t in trades if t.get("result") == "refund")
+    decided = wins + losses
     net = sum(t["pnl"] for t in trades)
     peak = initial_balance
     max_dd = 0.0
@@ -143,16 +156,24 @@ def summarize(trades: list[dict], initial_balance: float, payout: float) -> dict
     worst_streak = 0
     streak = 0
     for t in trades:
-        streak = streak + 1 if not t["win"] else 0
-        worst_streak = max(worst_streak, streak)
+        result = t.get("result", "win" if t["win"] else "loss")
+        if result == "win":
+            streak = 0
+        elif result == "loss":
+            streak += 1
+            worst_streak = max(worst_streak, streak)
 
-    win_rate = wins / len(trades) if trades else 0.0
+    win_rate = wins / decided if decided else 0.0
     break_even = 1.0 / (1.0 + payout) if payout > 0 else 0.0
     return {
         "trades": len(trades),
         "wins": wins,
         "losses": losses,
+        "refunds": refunds,
+        "decided_trades": decided,
         "win_rate": win_rate,
+        "win_rate_all": wins / len(trades) if trades else 0.0,
+        "refund_rate": refunds / len(trades) if trades else 0.0,
         "break_even_win_rate": break_even,
         "net_pnl": round(net, 2),
         "end_balance": round(initial_balance + net, 2),
@@ -167,7 +188,9 @@ def format_report(stats: dict) -> str:
         "=== BACKTEST REPORT ===",
         f"Trades:            {stats['trades']}",
         f"Wins / Losses:     {stats['wins']} / {stats['losses']}",
+        f"Refunds (ties):    {stats.get('refunds', 0)}  ({stats.get('refund_rate', 0.0)*100:.2f}%)",
         f"Win rate:          {stats['win_rate']*100:.2f}%  (break-even {stats['break_even_win_rate']*100:.2f}%)",
+        f"Win rate (all):    {stats.get('win_rate_all', stats['win_rate'])*100:.2f}%",
         f"Net P/L:           {stats['net_pnl']:+.2f}",
         f"End balance:       {stats['end_balance']:.2f}",
         f"Max drawdown:      {stats['max_drawdown']:.2f}",

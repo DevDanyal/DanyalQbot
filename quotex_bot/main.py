@@ -30,10 +30,9 @@ def _run(config: Config, mock: bool) -> None:
     Runner(config, connector).run_forever()
 
 
-def _backtest(config: Config, candles_csv: str, args) -> None:
+def _load_candles(candles_csv: str):
     import csv
 
-    from quotex_bot.backtest.engine import format_report, simulate
     from quotex_bot.models import Candle
 
     candles = []
@@ -44,20 +43,47 @@ def _backtest(config: Config, candles_csv: str, args) -> None:
                 low=float(row["low"]), close=float(row["close"]),
                 volume=float(row.get("volume") or 0),
             ))
-    stats = simulate(
-        candles_5s=candles,
-        direction_timeframe=config.strategy.get("direction_timeframe", 60),
-        direction_ema_period=config.strategy.get("direction_ema_period", 50),
-        expiry=config.strategy.get("expiry_seconds", 5),
-        payout=config.risk.get("payout_rate", 0.85),
-        bet_percent=config.risk.get("bet_percent", 0.01),
-        min_body_pips=config.strategy.get("min_body_pips", 0.0003),
-        body_vs_avg_ratio=config.strategy.get("body_vs_avg_ratio", 1.5),
-        ema_slope_bars=config.strategy.get("ema_slope_bars", 3),
-        reversal=config.strategy.get("reversal", False),
-        initial_balance=float(args.initial_balance),
-    )
+    return candles
+
+
+def _backtest(config: Config, candles_csv: str, args) -> None:
+    from quotex_bot.backtest.engine import format_report, simulate
+
+    candles = _load_candles(candles_csv)
+    variant = args.variant or config.strategy.get("variant", "ema_trend")
+    min_streak = args.min_streak or config.strategy.get("min_streak", 3)
+
+    def run(subset):
+        return simulate(
+            candles_5s=subset,
+            direction_timeframe=config.strategy.get("direction_timeframe", 60),
+            direction_ema_period=config.strategy.get("direction_ema_period", 50),
+            expiry=config.strategy.get("expiry_seconds", 5),
+            payout=config.risk.get("payout_rate", 0.85),
+            bet_percent=config.risk.get("bet_percent", 0.01),
+            min_body_pips=config.strategy.get("min_body_pips", 0.0003),
+            body_vs_avg_ratio=config.strategy.get("body_vs_avg_ratio", 1.5),
+            ema_slope_bars=config.strategy.get("ema_slope_bars", 3),
+            reversal=config.strategy.get("reversal", False),
+            require_strong_body=config.strategy.get("require_strong_body", True),
+            variant=variant,
+            min_streak=min_streak,
+            initial_balance=float(args.initial_balance),
+        )
+
+    stats = run(candles)
     print(format_report(stats))
+
+    if args.split:
+        mid = len(candles) // 2
+        first = run(candles[:mid])
+        second = run(candles[mid:])
+        print("\n=== OUT-OF-SAMPLE SPLIT ===")
+        for label, part in (("First half", first), ("Second half", second)):
+            print(f"{label}: {part['trades']} trades, "
+                  f"{part['win_rate']*100:.2f}% win (decided), "
+                  f"{part['net_pnl']:+.2f} P/L, {part['refunds']} refunds")
+        print("===========================")
 
 
 def _collect(config: Config) -> int:
@@ -74,6 +100,12 @@ def main() -> int:
     parser.add_argument("--candles", default="data/candles.csv",
                         help="CSV of candles for --mode backtest")
     parser.add_argument("--initial-balance", default="10000", help="starting balance for backtest")
+    parser.add_argument("--split", action="store_true",
+                        help="also report first-half vs second-half backtest results")
+    parser.add_argument("--variant", choices=["ema_trend", "streak_reversal"], default=None,
+                        help="override strategy.variant for this run")
+    parser.add_argument("--min-streak", type=int, default=None,
+                        help="override strategy.min_streak for this run")
     args = parser.parse_args()
 
     config = Config.from_yaml(args.config)

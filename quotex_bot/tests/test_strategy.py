@@ -128,6 +128,61 @@ def test_average_body():
     assert abs(avg - 0.01) < 1e-9
 
 
+def _streak_candles(signs, start=1.0, step=0.001):
+    candles = []
+    price = start
+    for i, sign in enumerate(signs):
+        o = price
+        price += step * sign
+        candles.append(make_candle(o, price, i))
+    return candles
+
+
+def test_streak_reversal_sells_after_up_streak():
+    engine = SignalEngine(variant="streak_reversal", min_streak=3, reversal=True)
+    entry = _streak_candles([1, 1, 1])
+    signal = engine.evaluate([], entry)
+    assert signal.active is True
+    assert signal.direction == "sell"
+
+
+def test_streak_momentum_buys_after_up_streak():
+    engine = SignalEngine(variant="streak_reversal", min_streak=3, reversal=False)
+    entry = _streak_candles([1, 1, 1])
+    signal = engine.evaluate([], entry)
+    assert signal.active is True
+    assert signal.direction == "buy"
+
+
+def test_streak_reversal_buys_after_down_streak():
+    engine = SignalEngine(variant="streak_reversal", min_streak=3, reversal=True)
+    entry = _streak_candles([-1, -1, -1], start=2.0)
+    signal = engine.evaluate([], entry)
+    assert signal.active is True
+    assert signal.direction == "buy"
+
+
+def test_streak_mixed_direction_no_signal():
+    engine = SignalEngine(variant="streak_reversal", min_streak=3, reversal=True)
+    entry = _streak_candles([1, -1, 1])
+    signal = engine.evaluate([], entry)
+    assert signal.active is False
+
+
+def test_streak_doji_no_signal():
+    engine = SignalEngine(variant="streak_reversal", min_streak=2, reversal=True)
+    entry = [make_candle(1.0, 1.001, 0), make_candle(1.001, 1.001, 1)]
+    signal = engine.evaluate([], entry)
+    assert signal.active is False
+
+
+def test_streak_not_enough_candles():
+    engine = SignalEngine(variant="streak_reversal", min_streak=3, reversal=True)
+    entry = _streak_candles([1, 1])
+    signal = engine.evaluate([], entry)
+    assert signal.active is False
+
+
 if __name__ == "__main__":
     test_ema_basic()
     test_ema_uptrend_lower()
@@ -139,4 +194,10 @@ if __name__ == "__main__":
     test_reversal_mode()
     test_strong_body_mode()
     test_average_body()
+    test_streak_reversal_sells_after_up_streak()
+    test_streak_momentum_buys_after_up_streak()
+    test_streak_reversal_buys_after_down_streak()
+    test_streak_mixed_direction_no_signal()
+    test_streak_doji_no_signal()
+    test_streak_not_enough_candles()
     print("All strategy tests passed!")

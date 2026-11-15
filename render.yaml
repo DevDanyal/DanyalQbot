@@ -9,7 +9,7 @@ services:
     rootDir: quotex_bot
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn quotex_bot.web.app:app --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 120
-    healthCheckPath: /api/bot/status
+    healthCheckPath: /healthz
     plan: free
     envVars:
       - key: QUOTEX_EMAIL
@@ -19,4 +19,6 @@ services:
       - key: QUOTEX_PROXY
         sync: false
       - key: QUOTEX_PIN
+        sync: false
+      - key: BOT_AUTH_TOKEN
         sync: false

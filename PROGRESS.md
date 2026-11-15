@@ -7,6 +7,91 @@ Secrets live ONLY in gitignored local files and Vercel env vars — never in the
 
 ---
 
+## Session 2026-11-15 — Strategy edge validation (NO EDGE PROVEN)
+
+Goal: find and validate a real edge before any live trading. Result: the
+current strategy is a net loser, and no tested variant is statistically
+robust on the data we have. Do NOT go live.
+
+### Data used
+
+- `quotex_bot/data/real_{EURUSD,GBPUSD,USDJPY,AUDUSD}.csv`, 10,000 5s
+  candles each, one session: 2026-08-06 06:37-20:31 UTC (~14h).
+- One day only. Break-even at 0.85 payout is **54.05%**. Treat every
+  result below as in-sample and fragile.
+
+### What was tested
+
+- 108-combo sweep of the existing `ema_trend` family (reversal on/off,
+  EMA period, slope bars, expiry 30/60/120, body filter). No combo beat
+  break-even reliably; the current config was already near the best of a
+  losing family.
+- Raw conditional analysis: mean reversion beats momentum at every
+  horizon; strongest at 15s (~55-58%) but the platform rejects 5s/15s
+  expiries, so 30s/60s is the practical floor.
+- Event study: 3+ same-direction 5s candles -> trade the opposite way
+  ("streak reversal") was the only candidate consistently above
+  break-even at 60s. Breakout continuation lost (~45-48%).
+- Split-half out-of-sample check: streak reversal at 60s was ~54.7%
+  overall but unstable by half, e.g. EURUSD 50.7% -> 59.2%, USDJPY
+  57.0% -> 53.1%. AUDUSD was the only pair stable in both halves
+  (~57%). Not enough evidence to call it an edge.
+
+### Code changes made
+
+- `backtest/engine.py`
+  - Ties (`exit == fill`) are now **refunds** (pnl 0), matching live
+    `connector/quotex.py` where status `equal` -> pnl 0. Previously ties
+    were counted as losses, understating win rate and EV.
+  - `simulate()` now accepts and forwards `require_strong_body`,
+    `variant`, and `min_streak` to `SignalEngine`. The backtest used to
+    hard-code the strong-body default and ignore `config.yaml`.
+  - `summarize()` reports `refunds`, `decided_trades`, `win_rate`
+    (wins/decided) and `win_rate_all`; refunds no longer extend the
+    worst-loss streak.
+  - `variant=streak_reversal` skips the EMA/1m warmup gate (the variant
+    does not use it).
+- `strategy/engine.py`
+  - New opt-in `variant="streak_reversal"` with `min_streak` (default 3).
+    Base mode follows the streak; `reversal=True` trades against it.
+    Doji inside the window or mixed directions -> no signal.
+- `scheduler/runner.py` now wires `strategy.variant` and
+  `strategy.min_streak` into the live `SignalEngine`.
+- `config.yaml` documents both variants. Default stays `ema_trend`; the
+  streak variant is documented as unproven and opt-in.
+- `main.py --mode backtest` now supports `--split` (first half vs second
+  half), `--variant`, and `--min-streak`.
+
+### Backtest results after the refund fix (60s, 0.85 payout)
+
+`ema_trend` (current config): EURUSD 51.48%, GBPUSD 54.83%, USDJPY
+49.84%, AUDUSD 50.09% -> net negative on 3/4 pairs.
+
+`streak_reversal` (min_streak=3): EURUSD 54.81% (+269), GBPUSD 52.45%
+(-1,112), USDJPY 54.67% (+215), AUDUSD 56.71% (+1,093). Better overall
+(~54.6%) but GBPUSD loses and EURUSD is half-to-half unstable.
+
+### Verified
+
+- `cd quotex_bot && python -m pytest tests/` -> **46/46** pass (10 new
+  tests: streak variant + refund accounting + param passthrough).
+- All four pairs re-backtested with `--split`.
+
+### Next tasks (strategy)
+
+1. Collect **multiple days** of candles per pair (different sessions and
+   regimes) before trusting any variant. One 14h day is not enough.
+2. Re-run `python main.py --mode backtest --candles data/real_<PAIR>.csv
+   --variant streak_reversal --min-streak 3 --split` on the new data and
+   require the edge to hold in BOTH halves and on 3+ pairs.
+3. Decide whether to run the streak variant in **demo only**. If yes,
+   the research agent must measure streak-N flip rate (it currently
+   measures single-candle flip rate) or it will block every trade.
+4. Do not promote to live until demo + multi-day backtests beat
+   break-even with a real margin.
+
+---
+
 ## Session 2026-09-11 — Professional admin panel (DONE)
 
 Built the professional dark admin dashboard on top of the token-based V1

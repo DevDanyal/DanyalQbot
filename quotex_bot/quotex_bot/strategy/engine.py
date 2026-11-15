@@ -24,7 +24,8 @@ class SignalEngine:
     def __init__(self, direction_ema_period: int = 50, min_body_pips: float = 0.0003,
                  body_vs_avg_ratio: float = 1.5, min_direction_candles: int = 60,
                  avg_body_window: int = 20, ema_slope_bars: int = 3,
-                 reversal: bool = False, require_strong_body: bool = True):
+                 reversal: bool = False, require_strong_body: bool = True,
+                 variant: str = "ema_trend", min_streak: int = 3):
         self.direction_ema_period = direction_ema_period
         self.min_body_pips = min_body_pips
         self.body_vs_avg_ratio = body_vs_avg_ratio
@@ -33,6 +34,8 @@ class SignalEngine:
         self.ema_slope_bars = ema_slope_bars
         self.reversal = reversal
         self.require_strong_body = require_strong_body
+        self.variant = variant
+        self.min_streak = min_streak
 
     def evaluate(self, direction_candles: list[Candle],
                  entry_candles: list[Candle], reversal: bool | None = None) -> Signal:
@@ -46,6 +49,8 @@ class SignalEngine:
         """
         if reversal is None:
             reversal = self.reversal
+        if self.variant == "streak_reversal":
+            return self._evaluate_streak(entry_candles, reversal)
         signal = Signal(candle_time=entry_candles[-1].time if entry_candles else 0.0)
 
         if len(direction_candles) < self.min_direction_candles:
@@ -143,4 +148,51 @@ class SignalEngine:
 
         signal.reason = (f"candle not fully on the trend side of EMA "
                          f"(high {candle.high:.5f}, low {candle.low:.5f}, EMA {ema_now:.5f})")
+        return signal
+
+    def _evaluate_streak(self, entry_candles: list[Candle],
+                         reversal: bool) -> Signal:
+        """Streak variant: react to `min_streak` consecutive same-direction
+        entry candles.
+
+        Base mode (reversal=False) follows the streak (momentum); reversal
+        mode trades against it. No EMA filter is used because the backtests
+        showed the EMA trend filter adds no edge to short-horizon streaks.
+        """
+        signal = Signal(candle_time=entry_candles[-1].time if entry_candles else 0.0)
+        if len(entry_candles) < self.min_streak:
+            signal.reason = (f"not enough entry candles "
+                             f"({len(entry_candles)} < {self.min_streak})")
+            return signal
+
+        window = entry_candles[-self.min_streak:]
+        signs = []
+        for c in window:
+            if c.close > c.open:
+                signs.append(1)
+            elif c.close < c.open:
+                signs.append(-1)
+            else:
+                signs.append(0)
+
+        last = entry_candles[-1]
+        signal.price = last.close
+        signal.body = last.body
+
+        if 0 in signs:
+            signal.reason = "doji inside streak window"
+            return signal
+        if len(set(signs)) != 1:
+            signal.reason = f"no {self.min_streak}-candle streak"
+            return signal
+
+        streak_dir = signs[0]
+        direction = "buy" if streak_dir > 0 else "sell"
+        if reversal:
+            direction = "sell" if direction == "buy" else "buy"
+        signal.direction = direction
+        signal.reason = (f"{'REVERSAL: ' if reversal else ''}"
+                         f"{self.min_streak}-candle "
+                         f"{'up' if streak_dir > 0 else 'down'} streak "
+                         f"-> {direction}")
         return signal

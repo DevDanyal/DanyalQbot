@@ -234,6 +234,11 @@ def _stats(key: str = "default") -> dict:
     }
 
 
+@app.route("/healthz")
+def healthz():
+    return jsonify({"ok": True, "service": "quotex-bot-backend"})
+
+
 @app.route("/")
 def index():
     return render_template("index.html")

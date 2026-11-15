@@ -44,6 +44,8 @@ class Runner:
             ema_slope_bars=config.strategy.get("ema_slope_bars", 3),
             reversal=config.strategy.get("reversal", False),
             require_strong_body=config.strategy.get("require_strong_body", False),
+            variant=config.strategy.get("variant", "ema_trend"),
+            min_streak=config.strategy.get("min_streak", 3),
         )
         self.risk = RiskManager(
             bet_percent=config.risk.get("bet_percent", 0.01),
