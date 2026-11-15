@@ -284,3 +284,7 @@ footer {
   .mini-stats { grid-template-columns: repeat(2, 1fr); }
   .topbar { flex-direction: column; align-items: flex-start; }
 }
+
+.v-plan{margin:10px 0 6px;padding:10px 12px;border:1px solid rgba(255,255,255,.08);border-radius:12px;background:rgba(255,255,255,.02)}
+.v-plan p{margin:4px 0;font-size:13px;opacity:.95}
+.v-plan strong{font-weight:600}

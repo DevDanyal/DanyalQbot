@@ -65,6 +65,7 @@ function renderVerdict(data) {
   const arrow = $("v-arrow");
   const dir = $("v-dir");
   const reasons = $("v-reasons");
+  const plan = $("v-plan");
   $("v-disclaimer").textContent = data.disclaimer || "";
 
   if (!data.ok) {
@@ -74,26 +75,41 @@ function renderVerdict(data) {
     $("v-conf").textContent = "";
     $("meter-fill").style.width = "0";
     reasons.innerHTML = "";
+    if (plan) plan.innerHTML = "";
     const li = document.createElement("li");
-    li.textContent = data.error;
+    li.textContent = data.error || "Analysis failed";
     reasons.appendChild(li);
     return;
   }
 
-  const d = data.direction;
-  arrow.textContent = d === "UP" ? "↑" : d === "DOWN" ? "↓" : "→";
-  arrow.className = "v-arrow " + (d === "UP" ? "up" : d === "DOWN" ? "down" : "flat");
-  dir.textContent = d;
-  $("v-conf").textContent = data.confidence + "% confidence · " + data.candles_detected + " candles read";
-  $("meter-fill").style.width = data.confidence + "%";
+  const d = data.direction || "NO_TRADE";
+  const up = d === "UP";
+  const down = d === "DOWN";
+  arrow.textContent = up ? "↑" : down ? "↓" : "•";
+  arrow.className = "v-arrow " + (up ? "up" : down ? "down" : "flat");
+  dir.textContent = data.action || d;
+  $("v-conf").textContent = (data.confidence || 0) + "% confidence • " + (data.candles_detected || 0) + " candles • momentum " + (data.momentum || "n/a");
+  $("meter-fill").style.width = (data.confidence || 0) + "%";
+
+  if (plan) {
+    plan.innerHTML = "";
+    if (data.trade_plan) {
+      [["Action", data.trade_plan.action], ["Suggested expiry", data.trade_plan.suggested_expiry], ["Entry", data.trade_plan.entry], ["Timing", data.trade_plan.timing]].forEach(([k, val]) => {
+        if (!val) return;
+        const p = document.createElement("p");
+        p.innerHTML = "<strong>" + esc(k) + ":</strong> " + esc(val);
+        plan.appendChild(p);
+      });
+    }
+  }
+
   reasons.innerHTML = "";
-  (data.reasons || []).forEach((r) => {
+  [].concat(data.candle_details || [], data.reasons || []).forEach((r) => {
     const li = document.createElement("li");
     li.textContent = r;
     reasons.appendChild(li);
   });
 }
-
 /* ---------- Auto Trader ---------- */
 $("start-btn").addEventListener("click", () => botAction("/api/bot/start"));
 $("mock-btn").addEventListener("click", () => botAction("/api/bot/start", { mock: true }));
