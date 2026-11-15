@@ -34,7 +34,10 @@ export default function LicensesPage() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState({ customerId: "", planCode: "PRO", days: 30 });
+  const [createMode, setCreateMode] = useState<"new" | "existing">("new");
+  const [createForm, setCreateForm] = useState({
+    name: "", userId: "", password: "", customerId: "", planCode: "PRO", days: 30,
+  });
   const [createMsg, setCreateMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [extendId, setExtendId] = useState<number | null>(null);
   const [extendDays, setExtendDays] = useState(30);
@@ -61,13 +64,27 @@ export default function LicensesPage() {
     e.preventDefault();
     setCreateMsg(null);
     try {
-      await adminPost("/api/v1/admin/licenses", {
-        customerId: Number(createForm.customerId),
-        planCode: createForm.planCode,
-        days: createForm.days,
-      });
-      setCreateMsg({ ok: true, text: "License created" });
-      setCreateForm({ customerId: "", planCode: "PRO", days: 30 });
+      if (createMode === "new") {
+        await adminPost("/api/v1/admin/users", {
+          name: createForm.name,
+          userId: createForm.userId,
+          password: createForm.password,
+          planCode: createForm.planCode,
+          days: createForm.days,
+        });
+        setCreateMsg({
+          ok: true,
+          text: `User ${createForm.userId.toUpperCase()} created. Log in with that User ID and password.`,
+        });
+      } else {
+        await adminPost("/api/v1/admin/licenses", {
+          customerId: Number(createForm.customerId),
+          planCode: createForm.planCode,
+          days: createForm.days,
+        });
+        setCreateMsg({ ok: true, text: "License created for existing customer." });
+      }
+      setCreateForm({ name: "", userId: "", password: "", customerId: "", planCode: "PRO", days: 30 });
       setShowCreate(false);
       await load();
     } catch (err) {
@@ -116,18 +133,30 @@ export default function LicensesPage() {
           ))}
         </div>
         <button
-          onClick={() => { setShowCreate(!showCreate); setCreateMsg(null); }}
+          onClick={() => { setShowCreate(!showCreate); setCreateMsg(null); setCreateMode("new"); }}
           className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#2563EB]/80"
         >
-          {showCreate ? "Cancel" : "+ Create License"}
+          {showCreate ? "Cancel" : "+ Create User / License"}
         </button>
       </div>
 
       {/* Create form */}
       {showCreate && (
         <form onSubmit={handleCreate} className="rounded-xl border border-white/[.08] bg-[#111827] p-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
-            <input placeholder="Customer ID" type="number" required value={createForm.customerId} onChange={(e) => setCreateForm({ ...createForm, customerId: e.target.value })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
+          <div className="mb-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => setCreateMode("new")} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${createMode === "new" ? "bg-[#2563EB] text-white" : "border border-white/[.1] text-gray-400 hover:text-white"}`}>New user (login + license)</button>
+            <button type="button" onClick={() => setCreateMode("existing")} className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${createMode === "existing" ? "bg-[#2563EB] text-white" : "border border-white/[.1] text-gray-400 hover:text-white"}`}>Existing customer (license only)</button>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
+            {createMode === "new" ? (
+              <>
+                <input placeholder="Name" required value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
+                <input placeholder="User ID (login)" required value={createForm.userId} onChange={(e) => setCreateForm({ ...createForm, userId: e.target.value.toUpperCase() })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
+                <input placeholder="Password (6+)" type="password" required minLength={6} value={createForm.password} onChange={(e) => setCreateForm({ ...createForm, password: e.target.value })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
+              </>
+            ) : (
+              <input placeholder="Customer ID" type="number" required value={createForm.customerId} onChange={(e) => setCreateForm({ ...createForm, customerId: e.target.value })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
+            )}
             <select value={createForm.planCode} onChange={(e) => setCreateForm({ ...createForm, planCode: e.target.value })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white outline-none focus:border-[#2563EB]/60">
               <option value="FREE">Free</option>
               <option value="PRO">Pro</option>
@@ -137,6 +166,11 @@ export default function LicensesPage() {
             <input type="number" min={1} placeholder="Days" value={createForm.days} onChange={(e) => setCreateForm({ ...createForm, days: Number(e.target.value) })} className="rounded-lg border border-white/[.1] bg-white/[.04] px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2563EB]/60" />
             <button type="submit" className="rounded-lg bg-[#22C55E] py-2 text-sm font-bold text-white transition hover:bg-[#22C55E]/80">Create</button>
           </div>
+          <p className="mt-3 text-xs text-gray-500">
+            {createMode === "new"
+              ? "Creates a user and a license in one step. The buyer logs in at /login with the User ID and password above."
+              : "Attaches a license to an existing customer ID. No new login is created."}
+          </p>
           {createMsg && <p className={`mt-3 text-xs ${createMsg.ok ? "text-[#22C55E]" : "text-[#EF4444]"}`}>{createMsg.text}</p>}
         </form>
       )}
@@ -148,7 +182,7 @@ export default function LicensesPage() {
             <thead className="border-b border-white/[.06] text-xs text-gray-400">
               <tr>
                 <th className="px-4 py-3 font-medium">License ID</th>
-                <th className="px-4 py-3 font-medium">User ID</th>
+                <th className="px-4 py-3 font-medium">Customer</th>
                 <th className="px-4 py-3 font-medium">Plan</th>
                 <th className="px-4 py-3 font-medium">Status</th>
                 <th className="px-4 py-3 font-medium">Start</th>
