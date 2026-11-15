@@ -36,3 +36,9 @@ opencode.jsonc
 Thumbs.db
 .DS_Store
 desktop.ini
+
+# Local tunnel/runtime
+TUNNEL_URL.txt
+quotex_bot/.env
+web/.env.local
+
